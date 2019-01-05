@@ -25,7 +25,7 @@ let includeLineAndColumn = false
 public struct PlannedEvolution: Codable {
   var sourceLocation: String
   var file: URL
-  var syntaxPath: IndexPath
+  var syntaxPath: [Int]
   var evolution: AnyEvolution
 }
 
