@@ -18,6 +18,10 @@
 import Foundation
 import SwiftSyntax
 
+/// Make this true to include line and column numbers in
+/// PlannedEvolution.sourceLocation strings, at a cost of ~20% wallclock time.
+let includeLineAndColumn = false
+
 public struct PlannedEvolution: Codable {
   var sourceLocation: String
   var file: URL
@@ -65,12 +69,21 @@ public class Planner<G: RandomNumberGenerator>: SyntaxVisitor {
       throw error
     }
   }
+
+  func makeLocationString(for node: Syntax) -> String {
+    if includeLineAndColumn {
+      return "at \(node.startLocation(in: url))"
+    }
+    else {
+      return "in \(url.path)"
+    }
+  }
   
   fileprivate func makePlannedEvolution(
     _ evolution: Evolution, of node: Syntax
   ) -> PlannedEvolution {
     return PlannedEvolution(
-      sourceLocation: "\(context.declContext.name) at \(node.startLocation(in: url))",
+      sourceLocation: "\(context.declContext.name) \(makeLocationString(for: node))",
       file: url,
       syntaxPath: context.syntaxPath,
       evolution: AnyEvolution(evolution)
