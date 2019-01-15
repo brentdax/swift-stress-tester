@@ -105,6 +105,7 @@ extension AnyEvolution {
     case shuffleMembers
     case synthesizeMemberwiseInitializer
     case shuffleGenericRequirements
+    case insertComputedMember
 
     var type: Evolution.Type {
       switch self {
@@ -114,6 +115,8 @@ extension AnyEvolution {
         return SynthesizeMemberwiseInitializerEvolution.self
       case .shuffleGenericRequirements:
         return ShuffleGenericRequirementsEvolution.self
+      case .insertComputedMember:
+        return InsertComputedMemberEvolution.self
       }
     }
   }
@@ -147,6 +150,27 @@ struct SynthesizeMemberwiseInitializerEvolution: Evolution {
 struct ShuffleGenericRequirementsEvolution: Evolution {
   var mapping: [Int]
   var kind: AnyEvolution.Kind { return .shuffleGenericRequirements }
+}
+
+// An evolution which adds a computed member to a concrete type.
+struct InsertComputedMemberEvolution: Evolution {
+  enum MemberKind: String, CaseIterable, Codable {
+    case function, variable, subscription, initializer
+  }
+
+  enum StaticKeyword: String, Codable {
+    case instance, `static`, `class`
+  }
+
+  var index: Int
+  var name: String
+  var labeledParameters: [Bool]
+  var memberKind: MemberKind
+  var staticKeyword: StaticKeyword
+  var accessLevel: AccessLevel
+  var isConvenience: Bool
+
+  var kind: AnyEvolution.Kind { return .insertComputedMember }
 }
 
 // MARK: Implementations
@@ -361,3 +385,267 @@ extension ShuffleGenericRequirementsEvolution {
     )
   }
 }
+
+extension InsertComputedMemberEvolution.MemberKind {
+  func makeDeclSyntax(
+    modifiers: ModifierListSyntax,
+    name: TokenSyntax,
+    parameterLabels: [TokenSyntax],
+    body: CodeBlockSyntax
+  ) -> Decl {
+    let parameters = parameterLabels.mapToFunctionParameterClause {
+      SyntaxFactory.makeFunctionParameter(
+        attributes: nil,
+        firstName: $0.withTrailingTrivia([.spaces(1)]),
+        secondName: SyntaxFactory.makeIdentifier("_"),
+        colon: SyntaxFactory.makeColonToken(trailingTrivia: [.spaces(1)]),
+        type: SyntaxFactory.makeAnyTypeIdentifier(),
+        ellipsis: nil,
+        defaultArgument: nil,
+        trailingComma: nil
+      )
+    }
+
+    switch self {
+    case .variable:
+      assert(parameterLabels.isEmpty)
+
+      return SyntaxFactory.makeVariableDecl(
+        attributes: nil,
+        modifiers: modifiers,
+        letOrVarKeyword: SyntaxFactory.makeVarKeyword(trailingTrivia: [.spaces(1)]),
+        bindings: SyntaxFactory.makePatternBindingList([
+          SyntaxFactory.makePatternBinding(
+            pattern: SyntaxFactory.makeIdentifierPattern(identifier: name),
+            typeAnnotation: SyntaxFactory.makeTypeAnnotation(
+              colon: SyntaxFactory.makeColonToken(trailingTrivia: [.spaces(1)]),
+              type: SyntaxFactory.makeAnyTypeIdentifier()
+            ),
+            initializer: nil,
+            accessor: body,
+            trailingComma: nil
+          )
+        ])
+      )
+
+    case .function:
+      return SyntaxFactory.makeFunctionDecl(
+        attributes: nil,
+        modifiers: modifiers,
+        funcKeyword: SyntaxFactory.makeFuncKeyword(trailingTrivia: [.spaces(1)]),
+        identifier: name,
+        genericParameterClause: nil,    // FIXME: We should make generics too
+        signature: SyntaxFactory.makeFunctionSignature(
+          input: parameters,
+          throwsOrRethrowsKeyword: nil,
+          output: SyntaxFactory.makeReturnClause(
+            arrow: SyntaxFactory.makeArrowToken(
+              leadingTrivia: .spaces(1), trailingTrivia: .spaces(1)
+            ),
+            returnType: SyntaxFactory.makeAnyTypeIdentifier()
+          )
+        ),
+        genericWhereClause: nil,
+        body: body
+      )
+
+    case .initializer:
+      return SyntaxFactory.makeInitializerDecl(
+        attributes: nil,
+        modifiers: modifiers,
+        initKeyword: SyntaxFactory.makeInitKeyword(),
+        optionalMark: nil,
+        genericParameterClause: nil,    // FIXME: We should make generics too
+        parameters: parameters,
+        throwsOrRethrowsKeyword: nil,
+        genericWhereClause: nil,
+        body: body
+      )
+
+    case .subscription:
+      return SyntaxFactory.makeSubscriptDecl(
+        attributes: nil,
+        modifiers: modifiers,
+        subscriptKeyword: SyntaxFactory.makeSubscriptKeyword(),
+        genericParameterClause: nil,    // FIXME: We should make generics too
+        indices: parameters,
+        result: SyntaxFactory.makeReturnClause(
+          arrow: SyntaxFactory.makeArrowToken(
+            leadingTrivia: .spaces(1), trailingTrivia: .spaces(1)
+          ),
+          returnType: SyntaxFactory.makeAnyTypeIdentifier()
+        ),
+        genericWhereClause: nil,
+        accessor: body
+      )
+    }
+  }
+}
+
+extension InsertComputedMemberEvolution.StaticKeyword {
+  static func allCases(
+    for memberKind: InsertComputedMemberEvolution.MemberKind, in decl: Decl
+  ) -> [InsertComputedMemberEvolution.StaticKeyword] {
+    if memberKind == .initializer || memberKind == .subscription {
+      return [.instance]
+    }
+    if decl is ClassDeclSyntax {
+      return [.instance, .static, .class]
+    }
+    return [.instance, .static]
+  }
+
+  func makeToken() -> TokenSyntax? {
+    switch self {
+    case .class:
+      return SyntaxFactory.makeClassKeyword()
+    case .static:
+      return SyntaxFactory.makeStaticKeyword()
+    case .instance:
+      return nil
+    }
+  }
+}
+
+extension AccessLevel {
+  static func allCases(for dc: DeclContext) -> [AccessLevel] {
+    let maximum = dc.maximumAccessLevel
+    return [.private, .fileprivate, .internal, .public].filter {
+      $0 <= maximum
+    }
+  }
+
+  func makeToken() -> TokenSyntax {
+    switch self {
+    case .private:
+      return SyntaxFactory.makePrivateKeyword()
+    case .fileprivate:
+      return SyntaxFactory.makeFileprivateKeyword()
+    case .internal:
+      return SyntaxFactory.makeInternalKeyword()
+    case .public:
+      return SyntaxFactory.makePublicKeyword()
+    case .open:
+      // open isn't a keyword! Surprise!
+      return SyntaxFactory.makeIdentifier("open")
+    }
+  }
+}
+
+extension InsertComputedMemberEvolution {
+  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+    where G: RandomNumberGenerator
+  {
+    guard
+      !(decl.last is ProtocolDeclSyntax),
+      let members = (node as? MemberDeclListSyntax).map(Array.init(_:))
+    else { throw EvolutionError.unsupported }
+
+    let kind = MemberKind.allCases.randomElement(using: &rng)!
+    let randomPart = rng.next(upperBound: UInt.max)
+
+    var labeled: [Bool] = []
+
+    switch kind {
+    case .variable:
+      // Never have any parameters
+      break
+
+    case .initializer, .subscription:
+      // These have no name, so let's make sure they start with a label.
+      labeled.append(true)
+      fallthrough
+
+    case .function:
+      let arity = Int.random(in: 0..<10, using: &rng)
+      labeled += (0..<arity).map { _ in Bool.random(using: &rng) }
+    }
+
+    self.init(
+      index: Int.random(
+        in: members.startIndex ... members.endIndex,
+        using: &rng
+      ),
+      name: "__swiftEvolveInserted\(randomPart)",
+      labeledParameters: labeled,
+      memberKind: kind,
+      staticKeyword: StaticKeyword.allCases(for: kind, in: decl.last!)
+        .randomElement(using: &rng)!,
+      accessLevel: AccessLevel.allCases(for: decl)
+        .randomElement(using: &rng)!,
+      isConvenience: kind == .initializer && decl.extendedDecl is ClassDeclSyntax
+    )
+  }
+
+  func makePrerequisites<G>(
+    for node: Syntax, in decl: DeclContext, using rng: inout G
+    ) throws -> [Evolution] where G : RandomNumberGenerator {
+    guard memberKind == .initializer else {
+      return []
+    }
+    // If we insert a new init, it might prevent a memberwise init from being
+    // synthesized.
+    return [
+      try SynthesizeMemberwiseInitializerEvolution
+        .makeWithPrerequisites(for: node, in: decl, using: &rng)
+      ].compactMap { $0 }.flatMap { $0 }
+  }
+
+  func evolve(_ node: Syntax) -> Syntax {
+    let members = node as! MemberDeclListSyntax
+
+    var modifierKeywords = [accessLevel.makeToken(), staticKeyword.makeToken()]
+    if isConvenience {
+      modifierKeywords.append(SyntaxFactory.makeIdentifier("convenience"))
+    }
+
+    let modifiers = SyntaxFactory.makeModifierList(
+      modifierKeywords.compactMap { $0 }
+      .map { modifierName in
+        SyntaxFactory.makeDeclModifier(
+          name: modifierName.withTrailingTrivia([.spaces(1)]),
+          detailLeftParen: nil,
+          detail: nil,
+          detailRightParen: nil
+        )
+      }
+    )
+
+    // Minor hack: We know we won't want to analyze this body, so we express it
+    // as an unknown token rather than figure out how to generate the exact
+    // nodes we'd want.
+    let body = [
+      #"fatalError("Resilience failure: Called a computed member inserted during later evolution!")"#
+    ].mapToCodeBlock {
+      SyntaxFactory.makeUnknown(
+        $0,
+        leadingTrivia: [.spaces(1)],
+        trailingTrivia: [.spaces(1)]
+      )
+    }
+
+    let newMember = memberKind.makeDeclSyntax(
+      modifiers: modifiers,
+      name: SyntaxFactory.makeIdentifier(name),
+      parameterLabels: labeledParameters.map {
+        SyntaxFactory.makeIdentifier($0 ? name : "_")
+      },
+      body: body
+    )
+
+    var membersCopy = Array(members)
+    membersCopy.insert(
+      SyntaxFactory.makeMemberDeclListItem(
+        decl: newMember, semicolon: nil
+      ).prependingTrivia([
+        .newlines(2),
+        .lineComment("// Synthesized by InsertComputedMemberEvolution"),
+        .newlines(1)
+      ]),
+      at: index
+    )
+
+    return SyntaxFactory.makeMemberDeclList(membersCopy)
+  }
+}
+

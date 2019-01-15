@@ -19,8 +19,20 @@ import SwiftSyntax
 
 extension Syntax {
   func prependingComment(_ text: String) -> Self {
-    return replacingTriviaWith(leading: {
-      $0 + [.lineComment("// \(text)"), .newlines(1)] + $0.trailingIndentation
+    return prependingTrivia([.lineComment("// \(text)"), .newlines(1)])
+  }
+
+  func prependingTrivia(_ leadingTrivia: Trivia) -> Self {
+    return replacingTriviaWith(leading: { existing in
+      let newTriviaPieces: [TriviaPiece] = leadingTrivia.flatMap { new -> [TriviaPiece] in
+        switch new {
+        case .newlines(let n):
+          return [TriviaPiece.newlines(n)] + Array(existing.trailingIndentation)
+        default:
+          return [new]
+        }
+      }
+      return existing + Trivia(pieces: newTriviaPieces)
     })
   }
   

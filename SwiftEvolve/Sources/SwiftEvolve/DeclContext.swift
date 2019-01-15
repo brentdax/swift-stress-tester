@@ -61,6 +61,17 @@ struct DeclContext {
   func lookupUnqualified(_ identifier: TokenSyntax) -> DeclContext? {
     return lookupUnqualified(identifier.text)
   }
+
+  /// If `last` is an extension, returns the `Decl` for the extended type;
+  /// otherwise returns `last`.
+  var extendedDecl: Decl? {
+    switch last! {
+    case let ext as ExtensionDeclSyntax:
+      return ext.extendedType.lookup(in: self)?.last
+    default:
+      return last!
+    }
+  }
 }
 
 extension DeclContext: CustomStringConvertible {
@@ -75,6 +86,74 @@ extension DeclContext: CustomStringConvertible {
 
   var isStored: Bool {
     return last?.isStored ?? false
+  }
+
+  var maximumAccessLevel: AccessLevel {
+    guard let ext = last as? ExtensionDeclSyntax else {
+      // Well, this is easy!
+      return last!.formalAccessLevel
+    }
+
+    // Extensions are trickier. We need the least of the extended type and all
+    // types involved in generic constraints.
+
+    /// Collects all nominal types explicitly mentioned in a syntax tree,
+    /// ignoring sugar. For instance, in `[Foo]` it would only include `Foo`,
+    /// not `Array`.
+    class NominalTypeSyntaxCollector: SyntaxVisitor {
+      var types: [TypeSyntax]
+      private lazy var genericFinder = GenericArgumentClauseFinder(collector: self)
+
+      init(types: [TypeSyntax]) {
+        self.types = types
+      }
+
+      // We want to collect only SimpleTypeIdentifierSyntax and
+      // MemberTypeIdentifierSyntax. When we do, we want to collect all nominal
+      // types in generic argument clauses but ignore all others, so we ask the
+      // genericFinder to walk the children of the node instead of doing it
+      // ourselves; it will call us back to walk any generic argument clauses
+      // it finds.
+      //
+      // We should walk into all other syntax, including type sugar, generic
+      // type syntax, and structural types, looking for nominal types within
+      // them.
+
+      override func visit(_ node: SimpleTypeIdentifierSyntax) -> SyntaxVisitorContinueKind {
+        types.append(node)
+        node.walk(genericFinder)
+        return .skipChildren
+      }
+
+      override func visit(_ node: MemberTypeIdentifierSyntax) -> SyntaxVisitorContinueKind {
+        types.append(node)
+        node.walk(genericFinder)
+        return .skipChildren
+      }
+
+      private class GenericArgumentClauseFinder: SyntaxVisitor {
+        unowned let collector: NominalTypeSyntaxCollector
+
+        init(collector: NominalTypeSyntaxCollector) {
+          self.collector = collector
+        }
+
+        override func visit(_ node: GenericArgumentClauseSyntax) -> SyntaxVisitorContinueKind {
+          node.walk(collector)
+          return .skipChildren
+        }
+      }
+    }
+
+    let collector = NominalTypeSyntaxCollector(types: [ ext.extendedType ])
+    ext.genericWhereClause?.walk(collector)
+
+    return collector.types.compactMap {
+      $0.lookup(in: self)?.maximumAccessLevel
+    }.min()
+      // If no resolvable types are involved, assume they are imported or
+      // otherwise unrestricted.
+      ?? .open
   }
 }
 
@@ -112,8 +191,27 @@ extension DeclContext {
   }
 }
 
-enum AccessLevel: String {
+enum AccessLevel: String, Codable, Comparable {
   case `private`, `fileprivate`, `internal`, `public`, `open`
+
+  private var rank: Int {
+    switch self {
+    case .private:
+      return 0
+    case .fileprivate:
+      return 1
+    case .internal:
+      return 2
+    case .public:
+      return 3
+    case .open:
+      return 4
+    }
+  }
+
+  static func < (lhs: AccessLevel, rhs: AccessLevel) -> Bool {
+    return lhs.rank < rhs.rank
+  }
 }
 
 extension DeclModifierSyntax {
