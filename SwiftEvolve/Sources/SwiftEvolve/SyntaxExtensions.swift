@@ -72,7 +72,7 @@ extension SubscriptDeclSyntax: DeclWithParameters {
 }
 
 extension DeclWithParameters {
-  var name: String {
+  var lookupName: String? {
     let parameterNames = parameters.parameterList.map { param in
       "\(param.firstName?.text ?? "_"):"
     }

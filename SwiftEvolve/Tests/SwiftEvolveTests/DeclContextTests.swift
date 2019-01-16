@@ -61,4 +61,20 @@ class DeclContextTests: XCTestCase {
     XCTAssertEqual(makeDeclContext(extensions[4]).maximumAccessLevel,
                    .private)
   }
+
+  func testIfConfig() throws {
+    let code = try SyntaxParser.parse(source:
+      """
+      #if _runtime(objc)
+      class MyClass: NSObject {}
+      #endif
+      """
+    )
+
+    guard let myClass = code.lookupDirect("MyClass") else {
+      XCTFail()
+      return
+    }
+    XCTAssertTrue(myClass is ClassDeclSyntax)
+  }
 }

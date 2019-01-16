@@ -106,6 +106,7 @@ extension AnyEvolution {
     case synthesizeMemberwiseInitializer
     case shuffleGenericRequirements
     case insertComputedMember
+    case insertComputedUnnamedMember
 
     var type: Evolution.Type {
       switch self {
@@ -117,6 +118,8 @@ extension AnyEvolution {
         return ShuffleGenericRequirementsEvolution.self
       case .insertComputedMember:
         return InsertComputedMemberEvolution.self
+      case .insertComputedUnnamedMember:
+        return InsertComputedUnnamedMemberEvolution.self
       }
     }
   }
@@ -152,25 +155,28 @@ struct ShuffleGenericRequirementsEvolution: Evolution {
   var kind: AnyEvolution.Kind { return .shuffleGenericRequirements }
 }
 
-// An evolution which adds a computed member to a concrete type.
+// An evolution which adds a computed func or var to a concrete type.
 struct InsertComputedMemberEvolution: Evolution {
-  enum MemberKind: String, CaseIterable, Codable {
-    case function, variable, subscription, initializer
-  }
-
-  enum StaticKeyword: String, Codable {
-    case instance, `static`, `class`
-  }
-
   var index: Int
   var name: String
   var labeledParameters: [Bool]
   var memberKind: MemberKind
   var staticKeyword: StaticKeyword
   var accessLevel: AccessLevel
-  var isConvenience: Bool
 
   var kind: AnyEvolution.Kind { return .insertComputedMember }
+}
+
+// An evolution which adds a computed init or  to a concrete type.
+struct InsertComputedUnnamedMemberEvolution: Evolution {
+  var index: Int
+  var name: String
+  var labeledParameters: [Bool]
+  var memberKind: MemberKind
+  var accessLevel: AccessLevel
+  var isConvenience: Bool
+
+  var kind: AnyEvolution.Kind { return .insertComputedUnnamedMember }
 }
 
 // MARK: Implementations
@@ -386,7 +392,14 @@ extension ShuffleGenericRequirementsEvolution {
   }
 }
 
-extension InsertComputedMemberEvolution.MemberKind {
+enum MemberKind: String, CaseIterable, Codable {
+  case function, variable, subscription, initializer
+
+  func mustBeConvenience(for dc: DeclContext) -> Bool {
+    guard self == .initializer else { return false }
+    return dc.extendedDecl is ClassDeclSyntax
+  }
+
   func makeDeclSyntax(
     modifiers: ModifierListSyntax,
     name: TokenSyntax,
@@ -482,13 +495,12 @@ extension InsertComputedMemberEvolution.MemberKind {
   }
 }
 
-extension InsertComputedMemberEvolution.StaticKeyword {
+enum StaticKeyword: String, Codable {
+  case instance, `static`, `class`
+
   static func allCases(
-    for memberKind: InsertComputedMemberEvolution.MemberKind, in decl: Decl
-  ) -> [InsertComputedMemberEvolution.StaticKeyword] {
-    if memberKind == .initializer || memberKind == .subscription {
-      return [.instance]
-    }
+    for decl: Decl
+  ) -> [StaticKeyword] {
     if decl is ClassDeclSyntax {
       return [.instance, .static, .class]
     }
@@ -541,24 +553,16 @@ extension InsertComputedMemberEvolution {
       let members = (node as? MemberDeclListSyntax).map(Array.init(_:))
     else { throw EvolutionError.unsupported }
 
-    let kind = MemberKind.allCases.randomElement(using: &rng)!
+    let kind = [MemberKind.function, .variable].randomElement(using: &rng)!
     let randomPart = rng.next(upperBound: UInt.max)
 
-    var labeled: [Bool] = []
-
-    switch kind {
-    case .variable:
-      // Never have any parameters
-      break
-
-    case .initializer, .subscription:
-      // These have no name, so let's make sure they start with a label.
-      labeled.append(true)
-      fallthrough
-
-    case .function:
+    let labeled: [Bool]
+    if kind == .function {
       let arity = Int.random(in: 0..<10, using: &rng)
-      labeled += (0..<arity).map { _ in Bool.random(using: &rng) }
+      labeled = (0..<arity).map { _ in Bool.random(using: &rng) }
+    }
+    else {
+      labeled = []
     }
 
     self.init(
@@ -569,35 +573,17 @@ extension InsertComputedMemberEvolution {
       name: "__swiftEvolveInserted\(randomPart)",
       labeledParameters: labeled,
       memberKind: kind,
-      staticKeyword: StaticKeyword.allCases(for: kind, in: decl.last!)
+      staticKeyword: StaticKeyword.allCases(for: decl.last!)
         .randomElement(using: &rng)!,
       accessLevel: AccessLevel.allCases(for: decl)
-        .randomElement(using: &rng)!,
-      isConvenience: kind == .initializer && decl.extendedDecl is ClassDeclSyntax
+        .randomElement(using: &rng)!
     )
-  }
-
-  func makePrerequisites<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
-    ) throws -> [Evolution] where G : RandomNumberGenerator {
-    guard memberKind == .initializer else {
-      return []
-    }
-    // If we insert a new init, it might prevent a memberwise init from being
-    // synthesized.
-    return [
-      try SynthesizeMemberwiseInitializerEvolution
-        .makeWithPrerequisites(for: node, in: decl, using: &rng)
-      ].compactMap { $0 }.flatMap { $0 }
   }
 
   func evolve(_ node: Syntax) -> Syntax {
     let members = node as! MemberDeclListSyntax
 
-    var modifierKeywords = [accessLevel.makeToken(), staticKeyword.makeToken()]
-    if isConvenience {
-      modifierKeywords.append(SyntaxFactory.makeIdentifier("convenience"))
-    }
+    let modifierKeywords = [accessLevel.makeToken(), staticKeyword.makeToken()]
 
     let modifiers = SyntaxFactory.makeModifierList(
       modifierKeywords.compactMap { $0 }
@@ -628,7 +614,7 @@ extension InsertComputedMemberEvolution {
       modifiers: modifiers,
       name: SyntaxFactory.makeIdentifier(name),
       parameterLabels: labeledParameters.map {
-        SyntaxFactory.makeIdentifier($0 ? name : "_")
+        SyntaxFactory.makeIdentifier($0 ? "label" : "_")
       },
       body: body
     )
@@ -649,3 +635,103 @@ extension InsertComputedMemberEvolution {
   }
 }
 
+extension InsertComputedUnnamedMemberEvolution {
+  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+    where G: RandomNumberGenerator
+  {
+    guard
+      !(decl.last is ProtocolDeclSyntax),
+      let members = (node as? MemberDeclListSyntax).map(Array.init(_:))
+    else { throw EvolutionError.unsupported }
+
+    let kind = [MemberKind.initializer, .subscription].randomElement(using: &rng)!
+    let randomPart = rng.next(upperBound: UInt.max)
+
+    let arity = Int.random(in: 0..<10, using: &rng)
+    let labeled: [Bool] = [true] + (0..<arity).map { _ in Bool.random(using: &rng) }
+
+    self.init(
+      index: Int.random(
+        in: members.startIndex ... members.endIndex,
+        using: &rng
+      ),
+      name: "__swiftEvolveInserted\(randomPart)",
+      labeledParameters: labeled,
+      memberKind: kind,
+      accessLevel: AccessLevel.allCases(for: decl)
+        .randomElement(using: &rng)!,
+      isConvenience: kind.mustBeConvenience(for: decl)
+    )
+  }
+
+  func makePrerequisites<G>(
+    for node: Syntax, in decl: DeclContext, using rng: inout G
+    ) throws -> [Evolution] where G : RandomNumberGenerator {
+    guard memberKind == .initializer else {
+      return []
+    }
+    // If we insert a new init, it might prevent a memberwise init from being
+    // synthesized.
+    return [
+      try SynthesizeMemberwiseInitializerEvolution
+        .makeWithPrerequisites(for: node, in: decl, using: &rng)
+      ].compactMap { $0 }.flatMap { $0 }
+  }
+
+  func evolve(_ node: Syntax) -> Syntax {
+    let members = node as! MemberDeclListSyntax
+
+    let modifierKeywords = [
+      accessLevel.makeToken(),
+      isConvenience ? SyntaxFactory.makeIdentifier("convenience") : nil
+    ]
+
+    let modifiers = SyntaxFactory.makeModifierList(
+      modifierKeywords.compactMap { $0 }
+        .map { modifierName in
+          SyntaxFactory.makeDeclModifier(
+            name: modifierName.withTrailingTrivia([.spaces(1)]),
+            detailLeftParen: nil,
+            detail: nil,
+            detailRightParen: nil
+          )
+      }
+    )
+
+    // Minor hack: We know we won't want to analyze this body, so we express it
+    // as an unknown token rather than figure out how to generate the exact
+    // nodes we'd want.
+    let body = [
+      #"fatalError("Resilience failure: Called a computed member inserted during later evolution!")"#
+    ].mapToCodeBlock {
+      SyntaxFactory.makeUnknown(
+        $0,
+        leadingTrivia: [.spaces(1)],
+        trailingTrivia: [.spaces(1)]
+      )
+    }
+
+    let newMember = memberKind.makeDeclSyntax(
+      modifiers: modifiers,
+      name: SyntaxFactory.makeIdentifier(name),
+      parameterLabels: labeledParameters.map {
+        SyntaxFactory.makeIdentifier($0 ? name : "_")
+      },
+      body: body
+    )
+
+    var membersCopy = Array(members)
+    membersCopy.insert(
+      SyntaxFactory.makeMemberDeclListItem(
+        decl: newMember, semicolon: nil
+        ).prependingTrivia([
+          .newlines(2),
+          .lineComment("// Synthesized by InsertComputedUnnamedMemberEvolution"),
+          .newlines(1)
+          ]),
+      at: index
+    )
+
+    return SyntaxFactory.makeMemberDeclList(membersCopy)
+  }
+}

@@ -16,6 +16,7 @@
 // -----------------------------------------------------------------------------
 
 import SwiftSyntax
+import Foundation
 
 private func makeName(from declarationChain: [Decl]) -> String {
   return declarationChain.map { $0.name }.joined(separator: ".")
@@ -65,10 +66,19 @@ struct DeclContext {
   /// If `last` is an extension, returns the `Decl` for the extended type;
   /// otherwise returns `last`.
   var extendedDecl: Decl? {
+    // Print statements are here to help diagnose a bug.
+    print("Called DeclContext(\(self)).extendedDecl")
     switch last! {
     case let ext as ExtensionDeclSyntax:
-      return ext.extendedType.lookup(in: self)?.last
+      if let extendedDC = ext.extendedType.lookup(in: self) {
+        print("  extension of \(extendedDC) (\(type(of: extendedDC.last!)))")
+        return extendedDC.last!
+      }
+      print("  extension of (extended type not found)")
+      return nil
+
     default:
+      print("  not extension (\(type(of: last!)))")
       return last!
     }
   }
@@ -222,6 +232,7 @@ extension DeclModifierSyntax {
 
 protocol Decl: DeclSyntax {
   var name: String { get }
+  var lookupName: String? { get }
 
   var isResilient: Bool { get }
   var isStored: Bool { get }
@@ -232,6 +243,7 @@ protocol Decl: DeclSyntax {
 }
 
 extension Decl {
+  var name: String { return lookupName! }
   var isResilient: Bool { return true }
   var isStored: Bool { return false }
 
@@ -243,9 +255,49 @@ extension Decl {
 extension Decl where Self: DeclWithMembers {
   func lookupDirect(_ name: String) -> Decl? {
     for item in members.members {
-      guard let member = item.decl as? Decl else { continue }
-      if member.name == name {
-        return member
+      switch item.decl {
+      case let member as Decl:
+        if member.lookupName == name {
+          return member
+        }
+
+      case let ifConfig as IfConfigDeclSyntax:
+        if let decl = ifConfig.lookupDirect(name) {
+          return decl
+        }
+
+      default:
+        continue
+      }
+    }
+    return nil
+  }
+}
+
+extension IfConfigDeclSyntax {
+  func lookupDirect(_ name: String) -> Decl? {
+    // HACK: As a simplifying assumption, we assume that if the same symbol is
+    // declared in several different clauses of a #if, the declarations will
+    // be similar enough to substitute them. For instance, a type will not be
+    // a class in one and a struct in another, or @_fixed_layout in one and
+    // resilient in the other.
+    //
+    // If this assumption proves not to be true in practice, we can represent
+    // and handle #if in a more sophisticated way in the future.
+    for clause in clauses {
+      switch clause.elements {
+      case let statementHolder as WithStatementsSyntax:
+        if let decl = statementHolder.lookupDirect(name) {
+          return decl
+        }
+
+      case let codeList as CodeBlockItemListSyntax:
+        if let decl = codeList.lookupDirect(name) {
+          return decl
+        }
+
+      default:
+        log(type: .debug, "Not sure how to handle IfConfigDeclSyntax clause elements of type \(type(of: clause.elements))")
       }
     }
     return nil
@@ -254,35 +306,47 @@ extension Decl where Self: DeclWithMembers {
 
 extension Decl where Self: AbstractFunctionDecl {
   func lookupDirect(_ name: String) -> Decl? {
-    guard let body = self.body else { return nil }
-    for item in body.statements {
-      guard let decl = item.item as? Decl else { continue }
-      if decl.name == name {
-        return decl
+    return body?.lookupDirect(name)
+  }
+}
+
+extension CodeBlockItemListSyntax {
+  func lookupDirect(_ name: String) -> Decl? {
+    for item in self {
+      switch item.item {
+      case let decl as Decl:
+        if decl.name == name {
+          return decl
+        }
+
+      case let ifConfig as IfConfigDeclSyntax:
+        if let decl = ifConfig.lookupDirect(name) {
+          return decl
+        }
+
+      default:
+        continue
       }
     }
     return nil
+  }
+}
+
+extension WithStatementsSyntax {
+  func lookupDirect(_ name: String) -> Decl? {
+    return statements.lookupDirect(name)
   }
 }
 
 extension SourceFileSyntax: Decl {
   var name: String { return "(file)" }
+  var lookupName: String? { return nil }
 
   var modifiers: ModifierListSyntax? { return nil }
-  
-  func lookupDirect(_ name: String) -> Decl? {
-    for item in statements {
-      guard let decl = item.item as? Decl else { continue }
-      if decl.name == name {
-        return decl
-      }
-    }
-    return nil
-  }
 }
 
 extension ClassDeclSyntax: Decl {
-  var name: String {
+  var lookupName: String? {
     return identifier.text
   }
 
@@ -292,7 +356,7 @@ extension ClassDeclSyntax: Decl {
 }
 
 extension StructDeclSyntax: Decl {
-  var name: String {
+  var lookupName: String? {
     return identifier.text
   }
 
@@ -302,7 +366,7 @@ extension StructDeclSyntax: Decl {
 }
 
 extension EnumDeclSyntax: Decl {
-  var name: String {
+  var lookupName: String? {
     return identifier.text
   }
 
@@ -312,7 +376,7 @@ extension EnumDeclSyntax: Decl {
 }
 
 extension ProtocolDeclSyntax: Decl {
-  var name: String {
+  var lookupName: String? {
     return identifier.text
   }
 }
@@ -321,10 +385,13 @@ extension ExtensionDeclSyntax: Decl {
   var name: String {
     return "(extension \(extendedType.typeText))"
   }
+  var lookupName: String? {
+    return nil
+  }
 }
 
 extension TypealiasDeclSyntax: Decl {
-  var name: String {
+  var lookupName: String? {
     return identifier.text
   }
   
@@ -334,7 +401,7 @@ extension TypealiasDeclSyntax: Decl {
 }
 
 extension AssociatedtypeDeclSyntax: Decl {
-  var name: String {
+  var lookupName: String? {
     return identifier.text
   }
   
@@ -426,6 +493,7 @@ extension VariableDeclSyntax: Decl {
     let nameList = list.map { $0.name.text }
     return "(\( nameList.joined(separator: ", ") ))"
   }
+  var lookupName: String? { return nil }
 
   var boundProperties: [BoundProperty] {
     return Array(
@@ -501,6 +569,7 @@ extension EnumCaseDeclSyntax: Decl {
       return "(" + elements.map { $0.name }.joined(separator: ", ") + ")"
     }
   }
+  var lookupName: String? { return nil }
 
   var isStored: Bool {
     return true

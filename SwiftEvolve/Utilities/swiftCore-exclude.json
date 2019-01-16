@@ -13,5 +13,11 @@
     "(file).ComputedPropertyID",
     "(file)._ObjectiveCBridgeable",
     "(file)._UnicodeEncoding"
+  ],
+  "insertComputedUnnamedMember": [
+    "(file).Optional",
+    "(file).(extension Optional)",
+    "(file).(extension Equatable)",
+    "(file).(extension Hashable)"
   ]
 }

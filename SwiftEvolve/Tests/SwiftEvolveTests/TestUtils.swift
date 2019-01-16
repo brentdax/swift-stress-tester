@@ -4,7 +4,8 @@ import SwiftSyntax
 import Basic
 
 extension Syntax {
-  func filter<T: Syntax>(whereIs type: T.Type) -> [T] {
+  // Not T: Syntax so you can specify a protocol existential.
+  func filter<T>(whereIs type: T.Type) -> [T] {
     var visitor = FilterVisitor { $0 is T }
     walk(&visitor)
     return visitor.passing as! [T]
