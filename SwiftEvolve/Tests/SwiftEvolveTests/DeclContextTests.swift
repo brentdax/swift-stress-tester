@@ -62,19 +62,66 @@ class DeclContextTests: XCTestCase {
                    .private)
   }
 
+  func testNestedExtensionTypes() throws {
+    let code = try SyntaxParser.parse(source:
+      """
+      class MyClass: NSObject {}
+      extension MyClass { struct Nested {} }
+      extension MyClass.Nested { enum NestedDeeper {} }
+      """
+    )
+    let dc = DeclChain(decls: [code])
+
+    XCTIfLet(dc.lookupQualified("MyClass")) { MyClass in
+      XCTAssertTrue(MyClass.last is ClassDeclSyntax)
+
+      XCTIfLet(MyClass.lookupQualified("Nested")) { MyClass_Nested in
+        XCTAssertTrue(MyClass_Nested.last is StructDeclSyntax)
+
+        XCTIfLet(MyClass_Nested.lookupQualified("NestedDeeper")) { MyClass_Nested_NestedDeeper in
+          XCTAssertTrue(MyClass_Nested_NestedDeeper.last is EnumDeclSyntax)
+        }
+      }
+    }
+  }
+
   func testIfConfig() throws {
     let code = try SyntaxParser.parse(source:
       """
       #if _runtime(objc)
       class MyClass: NSObject {}
+      extension MyClass { struct Nested {} }
+      extension MyClass.Nested { enum NestedDeeper {} }
       #endif
       """
     )
+    let dc = DeclContext(declarationChain: [code])
 
-    guard let myClass = code.lookupDirect("MyClass") else {
-      XCTFail()
-      return
+    XCTIfLet(dc.lookupQualified("MyClass")) { MyClass in
+      XCTAssertTrue(MyClass.last is ClassDeclSyntax)
+
+      XCTIfLet(MyClass.lookupQualified("Nested")) { MyClass_Nested in
+        XCTAssertTrue(MyClass_Nested.last is StructDeclSyntax)
+
+        XCTIfLet(MyClass_Nested.lookupQualified("NestedDeeper")) { MyClass_Nested_NestedDeeper in
+          XCTAssertTrue(MyClass_Nested_NestedDeeper.last is EnumDeclSyntax)
+        }
+      }
     }
-    XCTAssertTrue(myClass is ClassDeclSyntax)
+  }
+}
+
+func XCTIfLet<T>(
+  _ value: T?,
+  _ message: String = "Value should not be nil",
+  file: StaticString = #file,
+  line: UInt = #line,
+  then body: (T) throws -> Void
+) rethrows {
+  if let value = value {
+    try body(value)
+  }
+  else {
+    XCTFail(message, file: file, line: line)
   }
 }

@@ -18,7 +18,7 @@
 import SwiftSyntax
 import Foundation
 
-protocol DeclWithMembers: DeclSyntax {
+protocol DeclWithMembers: DeclSyntax, MayContainChildNominalDecls {
   var members: MemberDeclBlockSyntax { get }
   func withMembers(_ newChild: MemberDeclBlockSyntax?) -> Self
 }
@@ -72,7 +72,7 @@ extension SubscriptDeclSyntax: DeclWithParameters {
 }
 
 extension DeclWithParameters {
-  var lookupName: String? {
+  var name: String {
     let parameterNames = parameters.parameterList.map { param in
       "\(param.firstName?.text ?? "_"):"
     }
@@ -124,21 +124,8 @@ extension DeclContext {
 }
 
 extension TypeSyntax {
-  func lookup(in context: DeclContext) -> DeclContext? {
-    switch self {
-    case let self as SimpleTypeIdentifierSyntax:
-      return context.lookupUnqualified(self.name)
-      
-    case let self as MemberTypeIdentifierSyntax:
-      return self.baseType.lookup(in: context)?.lookupDirect(self.name)
-      
-    default:
-      return nil
-    }
-  }
-  
   func absolute(in dc: DeclContext) -> TypeSyntax {
-    guard let resolved = lookup(in: dc) else {
+    guard let resolved = dc.lookupUnqualified(self) else {
       return self
     }
     if let typealiasDecl = resolved.last as? TypealiasDeclSyntax {

@@ -210,107 +210,9 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
       }
       extension Foo {}
       extension Foo.Nested {}
-
-      /// An `NSArray` with Swift-native reference counting and contiguous
-      /// storage.
-      ///
-      /// NOTE: older runtimes called this
-      /// _SwiftNativeNSArrayWithContiguousStorage. The two must coexist, so
-      /// it was renamed. The old name must not be used in the new runtime.
-      @_fixed_layout
-      @usableFromInline
-      internal class __SwiftNativeNSArrayWithContiguousStorage
-        : __SwiftNativeNSArray { // Provides NSArray inheritance and native refcounting
-
-        @inlinable
-        @nonobjc internal override init() {}
-
-        @inlinable
-        deinit {}
-
-        // Operate on our contiguous storage
-        internal func withUnsafeBufferOfObjects<R>(
-          _ body: (UnsafeBufferPointer<AnyObject>) throws -> R
-        ) rethrows -> R {
-          _internalInvariantFailure(
-            "Must override withUnsafeBufferOfObjects in derived classes")
-        }
-      }
-
-      // Implement the APIs required by NSArray
-      extension __SwiftNativeNSArrayWithContiguousStorage : _NSArrayCore {
-        @objc internal var count: Int {
-          return withUnsafeBufferOfObjects { $0.count }
-        }
-
-        @objc(objectAtIndex:)
-        internal func objectAt(_ index: Int) -> AnyObject {
-          return withUnsafeBufferOfObjects {
-            objects in
-            _precondition(
-              _isValidArraySubscript(index, count: objects.count),
-              "Array index out of range")
-            return objects[index]
-          }
-        }
-
-        @objc internal func getObjects(
-          _ aBuffer: UnsafeMutablePointer<AnyObject>, range: _SwiftNSRange
-        ) {
-          return withUnsafeBufferOfObjects {
-            objects in
-            _precondition(
-              _isValidArrayIndex(range.location, count: objects.count),
-              "Array index out of range")
-
-            _precondition(
-              _isValidArrayIndex(
-                range.location + range.length, count: objects.count),
-              "Array index out of range")
-
-            if objects.isEmpty { return }
-
-            // These objects are "returned" at +0, so treat them as pointer values to
-            // avoid retains. Copy bytes via a raw pointer to circumvent reference
-            // counting while correctly aliasing with all other pointer types.
-            UnsafeMutableRawPointer(aBuffer).copyMemory(
-              from: objects.baseAddress! + range.location,
-              byteCount: range.length * MemoryLayout<AnyObject>.stride)
-          }
-        }
-
-        @objc(countByEnumeratingWithState:objects:count:)
-        internal func countByEnumerating(
-          with state: UnsafeMutablePointer<_SwiftNSFastEnumerationState>,
-          objects: UnsafeMutablePointer<AnyObject>?, count: Int
-        ) -> Int {
-          var enumerationState = state.pointee
-
-          if enumerationState.state != 0 {
-            return 0
-          }
-
-          return withUnsafeBufferOfObjects {
-            objects in
-            enumerationState.mutationsPtr = _fastEnumerationStorageMutationsPtr
-            enumerationState.itemsPtr =
-              AutoreleasingUnsafeMutablePointer(objects.baseAddress)
-            enumerationState.state = 1
-            state.pointee = enumerationState
-            return objects.count
-          }
-        }
-
-        @objc(copyWithZone:)
-        internal func copy(with _: _SwiftNSZone?) -> AnyObject {
-          return self
-        }
-      }
       """
     )
-    let dcs = code.filter(whereIs: DeclSyntax.self).map {
-      DeclContext(declarationChain: reconstructDeclChain(at: $0))
-    }
+    let dcs = code.filter(whereIs: DeclSyntax.self).map(DeclContext.init(at:))
 
     // 0 is the SourceFileSyntax.
     XCTAssertFalse(MemberKind.initializer.mustBeConvenience(for: dcs[0]))
@@ -320,15 +222,13 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
     XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[3]))
     XCTAssertFalse(MemberKind.initializer.mustBeConvenience(for: dcs[4]))
     XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[5]))
-
-    XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[6]))
-    XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[10]))
   }
 
-  func testMustBeConvenienceRegression() throws {
-    let code = try SyntaxParser.parse(URL(fileURLWithPath: "/Volumes/DocumentsHD/Code/open-swift-alt/swift/stdlib/public/core/DictionaryBridging.swift"))
-    XCTAssertNotNil(code.lookupDirect("__CocoaDictionary"))
-  }
+//  func testMustBeConvenienceRegression() throws {
+//    let code = try SyntaxParser.parse(URL(fileURLWithPath: "/Volumes/DocumentsHD/Code/open-swift-alt/swift/stdlib/public/core/DictionaryBridging.swift"))
+//    let dc = DeclContext(declarationChain: [code])
+//    XCTAssertNotNil(dc.lookupQualified("__CocoaDictionary"))
+//  }
 }
 
 func reconstructDeclChain(at node: Syntax) -> [Decl] {
