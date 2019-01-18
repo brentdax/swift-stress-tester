@@ -58,6 +58,19 @@ struct DeclContext {
   var extendedDecl: Decl? {
     return extendedDeclContext?.last
   }
+
+  /// Returns the name of the declaration as if it were defined directly in the
+  /// base type, even if it's actually within an extension.
+  var extendedTypeName: String {
+    return declarationChain.flatMap { decl -> String in
+      if let ext = decl as? ExtensionDeclSyntax {
+        return ext.extendedType.typeText
+      }
+      else {
+        return decl.name
+      }
+    }.joined(separator: ".")
+  }
 }
 
 extension DeclContext: CustomStringConvertible {

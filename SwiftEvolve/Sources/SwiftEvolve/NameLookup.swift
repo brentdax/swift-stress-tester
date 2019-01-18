@@ -10,7 +10,9 @@
 //
 // -----------------------------------------------------------------------------
 ///
-/// This file implements limited name lookup support for swift-evolve.
+/// This file implements limited name lookup support for swift-evolve. It
+/// doesn't implement Swift's full semantics, but it's usually capable of
+/// matching a type reference to a ValueDecl node.
 ///
 // -----------------------------------------------------------------------------
 
@@ -107,7 +109,8 @@ extension DeclContext {
 
 // MARK: Name matching.
 
-protocol ValueDecl: Decl, MayContainSiblingNominalDecls {
+/// A declaration of some sort of named source entity.
+protocol ValueDecl: Decl {
   /// Returns true if `self` should be returned for a lookup of `name`.
   func matches(_ name: String) -> Bool
 }
@@ -126,8 +129,8 @@ extension TypealiasDeclSyntax: ValueDecl {}
 extension AssociatedtypeDeclSyntax: ValueDecl {}
 
 extension ValueDecl where Self: DeclWithParameters {
-  func lookupFlat(_ name: String) -> Decl? {
-    return baseName == name || self.name == name ? self : nil
+  func matches(_ name: String) -> Bool {
+    return baseName == name || self.name == name
   }
 }
 
@@ -147,83 +150,6 @@ extension EnumCaseDeclSyntax: ValueDecl {
   }
 }
 
-// MARK: Finding children of a known parent. This implementation is transitional.
-
-/// Transitional.
-protocol MayContainSiblingNominalDecls: Syntax {
-  /// Implements name lookup within the parent context against this node. That
-  /// is, if `self` or some child of `self` should be returned from
-  /// `lookupDirect(_:)` on its `DeclContext`, returns that node.
-  func lookupFlat(_ name: String) -> ValueDecl?
-}
-
-extension ValueDecl {
-  func lookupFlat(_ name: String) -> ValueDecl? {
-    return matches(name) ? self : nil
-  }
-}
-
-// Syntax nodes which can contain declarations belonging to the parent type:
-extension MemberDeclListSyntax: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> ValueDecl? {
-    for item in self {
-      if let decl = (item.decl as? MayContainSiblingNominalDecls)?.lookupFlat(name) {
-        return decl
-      }
-    }
-    return nil
-  }
-}
-
-extension IfConfigDeclSyntax: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> ValueDecl? {
-    // HACK: As a simplifying assumption, we assume that if the same symbol is
-    // declared in several different clauses of a #if, the declarations will
-    // be similar enough to substitute them. For instance, a type will not be
-    // a class in one and a struct in another, or @_fixed_layout in one and
-    // resilient in the other.
-    //
-    // If this assumption proves not to be true in practice, we can represent
-    // and handle #if in a more sophisticated way in the future.
-    for clause in clauses {
-      guard let elements = clause.elements as? MayContainSiblingNominalDecls else {
-        log(type: .error, "Not sure how to handle IfConfigDeclSyntax clause elements of type \(type(of: clause.elements))")
-        continue
-      }
-      if let decl = elements.lookupFlat(name) {
-        return decl
-      }
-    }
-    return nil
-  }
-}
-
-extension CodeBlockItemListSyntax: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> ValueDecl? {
-    for item in self {
-      guard let statement = item.item as? MayContainSiblingNominalDecls else {
-        log(type: .error, "Not sure how to handle CodeBlockItemListSyntax clause elements of type \(type(of: item.item))")
-        continue
-      }
-      if let decl = statement.lookupFlat(name) {
-        return decl
-      }
-    }
-    return nil
-  }
-}
-
-extension WithStatementsSyntax where Self: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> ValueDecl? {
-    return statements.lookupFlat(name)
-  }
-}
-
-extension CodeBlockSyntax: MayContainSiblingNominalDecls {}
-extension ClosureExprSyntax: MayContainSiblingNominalDecls {}
-extension SourceFileSyntax: MayContainSiblingNominalDecls {}
-extension SwitchCaseSyntax: MayContainSiblingNominalDecls {}
-
 // MARK: Defining which decls have child decls, and how to locate them.
 
 // FIXME: Should be called DeclContext.
@@ -236,8 +162,9 @@ extension _DeclContext where Self: DeclWithMembers {
   func lookupDirect(_ name: String) -> ValueDecl? {
     // Check all of this type's member lists to see if any of them have the
     // declaration.
-    for memberList in collectMemberLists() {
-      if let decl = memberList.lookupFlat(name) {
+    for context in ExtensionFinder(of: self).found {
+      // Search all nodes under the decl, ignoring nodes under _DeclContexts.
+      if let decl = ValueDeclFinder(name, in: context).found.first {
         return decl
       }
     }
@@ -247,14 +174,14 @@ extension _DeclContext where Self: DeclWithMembers {
 }
 
 // FIXME: Do we really want this?
-extension Decl where Self: AbstractFunctionDecl {
+extension _DeclContext where Self: AbstractFunctionDecl {
   func lookupDirect(_ name: String) -> ValueDecl? {
-    return body?.lookupFlat(name)
+    return ValueDeclFinder(name, in: self).found.first
   }
 }
 
 // FIXME: Do we really want this?
-extension VariableDeclSyntax {
+extension VariableDeclSyntax: _DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return nil
   }
@@ -286,59 +213,133 @@ extension SubscriptDeclSyntax {
 
 extension SourceFileSyntax: _DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
-    return statements.lookupFlat(name)
+    return ValueDeclFinder(name, in: self).found.first
   }
 }
 
 // MARK: Extension handling
 
-extension DeclWithMembers {
-  /// Returns the base declaration plus all extensions matching the given
-  /// Decl.
-  ///
-  /// - Parameter decl: A type declaration of some kind. This could be
-  ///             either the base declaration or an extension of the type.
-  /// - Returns: A list of DeclContexts in the same source file as `decl`
-  ///            which match that type.
-  fileprivate func collectMemberLists() -> [MemberDeclListSyntax] {
-    return ExtensionFinder(self).found.compactMap {
-      ($0.last as? DeclWithMembers)?.members.members
-    }
-  }
-}
+/// A visitor which finds a ValueDecl child of a _DeclContext with a given name.
+fileprivate class ValueDeclFinder: SyntaxVisitor {
+  private let name: String
+  let parent: _DeclContext & Syntax
+  var found: [ValueDecl] = []
 
-extension DeclContext {
-  /// Returns the name of the declaration as if it were defined directly in the
-  /// base type, even if it's actually within an extension.
-  var extendedTypeName: String {
-    return declarationChain.flatMap { decl -> [Substring] in
-      if let ext = decl as? ExtensionDeclSyntax {
-        return ext.extendedType.typeText.split(separator: ".")
-      }
-      else {
-        return [decl.name[...]]
-      }
-    }.joined(separator: ".")
+  init(_ name: String, in parent: _DeclContext & Syntax) {
+    self.parent = parent
+    self.name = name
+
+    super.init()
+
+    parent.walk(self)
   }
+
+  private func process(_ node: Syntax) -> SyntaxVisitorContinueKind {
+    if let decl = node as? ValueDecl, decl.matches(name) {
+      found.append(decl)
+    }
+    if node is _DeclContext && node != parent {
+      // We shouldn't look in here; it's a different namespace.
+      return .skipChildren
+    }
+    return .visitChildren
+  }
+
+  // This list is a superset of the nodes we actually care about today.
+
+  override func visit(_ node: TypealiasDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: AssociatedtypeDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: AccessorDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: GenericParameterSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  override func visit(_ node: FunctionParameterSyntax) -> SyntaxVisitorContinueKind {
+    return process(node)
+  }
+
+  // In the future, we might also need something for the let variables in
+  // if/guard/while/for statements and pattern matches.
 }
 
 /// A visitor which finds all the extensions matching the declaration containing
 /// a given node.
 fileprivate class ExtensionFinder: SyntaxVisitor {
   /// The decl we're looking for extensions on.
-  private let lookingFor: DeclContext
+  private let lookingFor: String
 
   /// The result list. Includes the original decl and all found extensions.
-  fileprivate var found: [DeclContext]
+  fileprivate var found: [_DeclContext & Syntax]
 
   /// The context of the decl we're currently visiting.
   private var current: DeclContext
 
-  fileprivate init(_ node: Syntax) {
+  fileprivate init(of node: Syntax) {
     current = DeclContext(declarationChain: [])
 
     guard let target = DeclContext(at: node).extendedDeclContext else {
-      lookingFor = current
+      lookingFor = current.extendedTypeName
       found = []
 
       super.init()
@@ -346,8 +347,8 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
       return
     }
 
-    lookingFor = target
-    found = [target]
+    lookingFor = target.extendedTypeName
+    found = [target.last as! _DeclContext & Syntax]
 
     super.init()
 
@@ -370,10 +371,10 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
     current.removeLast()
   }
 
-  override func visit(_: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+  override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
     // FIXME: Kind of gross, but at least it's not circular.
-    if lookingFor.extendedTypeName == current.extendedTypeName {
-      found.append(current)
+    if current.extendedTypeName == lookingFor {
+      found.append(node)
     }
 
     // Extensions cannot contain extensions, so we don't need to look at
