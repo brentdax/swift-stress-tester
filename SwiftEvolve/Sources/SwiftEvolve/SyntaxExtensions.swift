@@ -102,24 +102,25 @@ func != (lhs: Syntax?, rhs: Syntax?) -> Bool {
 }
 
 extension DeclChain {
-  var typeSyntax: TypeSyntax {
-    let name = SyntaxFactory.makeIdentifier(last!.syntacticNames.first!)
-    let parent = removingLast()
-    
-    if parent.decls.allSatisfy({ $0 is SourceFileSyntax }) {
-      // Base case
-      return SyntaxFactory.makeSimpleTypeIdentifier(
-        name: name,
+  fileprivate var typeSyntax: TypeSyntax {
+    let valueDecls = decls.compactMap { $0 as? ValueDecl }
+
+    let rootValueDecl = valueDecls.first!
+    let memberValueDecls = valueDecls.dropFirst()
+
+    return memberValueDecls.reduce(
+      SyntaxFactory.makeSimpleTypeIdentifier(
+        name: SyntaxFactory.makeIdentifier(rootValueDecl.syntacticNames.first!),
+        genericArgumentClause: nil
+      )
+    ) { baseTypeSyntax, memberValueDecl in
+      SyntaxFactory.makeMemberTypeIdentifier(
+        baseType: baseTypeSyntax,
+        period: SyntaxFactory.makePeriodToken(),
+        name: SyntaxFactory.makeIdentifier(memberValueDecl.syntacticNames.first!),
         genericArgumentClause: nil
       )
     }
-    
-    return SyntaxFactory.makeMemberTypeIdentifier(
-      baseType: parent.typeSyntax,
-      period: SyntaxFactory.makePeriodToken(),
-      name: name,
-      genericArgumentClause: nil
-    )
   }
 }
 

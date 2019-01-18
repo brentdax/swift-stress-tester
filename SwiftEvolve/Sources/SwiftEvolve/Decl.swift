@@ -17,34 +17,41 @@
 
 import SwiftSyntax
 
+/// A syntax node which can participate in a DeclChain.
 protocol Decl: DeclSyntax {
   /// A name for this declaration that can be used to describe its place in the
   /// declaration context hierarchy.
   var descriptiveName: String { get }
 
+  var modifiers: ModifierListSyntax? { get }
+}
+
+/// A declaration of a named source entity.
+protocol ValueDecl: Decl {
   /// Names for this declaration that would be used in syntax.
   var syntacticNames: [String] { get }
 
   var isResilient: Bool { get }
-  var isStored: Bool { get }
 
-  var modifiers: ModifierListSyntax? { get }
+  var isStored: Bool { get }
 }
 
 extension Decl {
-  var isResilient: Bool { return true }
-  var isStored: Bool { return false }
-
   var formalAccessLevel: AccessLevel {
     return modifiers?.lazy.compactMap { $0.accessLevel }.first ?? .internal
   }
+}
 
+extension ValueDecl {
   var syntacticNames: [String] {
     return [descriptiveName]
   }
+
+  var isResilient: Bool { return true }
+  var isStored: Bool { return false }
 }
 
-extension Decl where Self: DeclWithParameters {
+extension ValueDecl where Self: DeclWithParameters {
   var syntacticNames: [String] {
     return [descriptiveName, baseName]
   }
@@ -80,13 +87,12 @@ extension DeclModifierSyntax {
 }
 
 extension SourceFileSyntax: Decl {
-  var syntacticNames: [String] { return [] }
   var descriptiveName: String { return "(file)" }
 
   var modifiers: ModifierListSyntax? { return nil }
 }
 
-extension ClassDeclSyntax: Decl {
+extension ClassDeclSyntax: ValueDecl {
   var descriptiveName: String {
     return identifier.text
   }
@@ -96,7 +102,7 @@ extension ClassDeclSyntax: Decl {
   }
 }
 
-extension StructDeclSyntax: Decl {
+extension StructDeclSyntax: ValueDecl {
   var descriptiveName: String {
     return identifier.text
   }
@@ -106,7 +112,7 @@ extension StructDeclSyntax: Decl {
   }
 }
 
-extension EnumDeclSyntax: Decl {
+extension EnumDeclSyntax: ValueDecl {
   var descriptiveName: String {
     return identifier.text
   }
@@ -116,39 +122,37 @@ extension EnumDeclSyntax: Decl {
   }
 }
 
-extension ProtocolDeclSyntax: Decl {
+extension ProtocolDeclSyntax: ValueDecl {
   var descriptiveName: String {
     return identifier.text
   }
 }
 
 extension ExtensionDeclSyntax: Decl {
-  var syntacticNames: [String] { return [] }
-
   var descriptiveName: String {
     return "(extension \(extendedType.typeText))"
   }
 }
 
-extension TypealiasDeclSyntax: Decl {
+extension TypealiasDeclSyntax: ValueDecl {
   var descriptiveName: String {
     return identifier.text
   }
 }
 
-extension AssociatedtypeDeclSyntax: Decl {
+extension AssociatedtypeDeclSyntax: ValueDecl {
   var descriptiveName: String {
     return identifier.text
   }
 }
 
-extension FunctionDeclSyntax: Decl {}
+extension FunctionDeclSyntax: ValueDecl {}
 
-extension InitializerDeclSyntax: Decl {}
+extension InitializerDeclSyntax: ValueDecl {}
 
-extension SubscriptDeclSyntax: Decl {}
+extension SubscriptDeclSyntax: ValueDecl {}
 
-extension VariableDeclSyntax: Decl {
+extension VariableDeclSyntax: ValueDecl {
   var descriptiveName: String {
     let list = syntacticNames
     if list.count == 1 {
@@ -171,7 +175,7 @@ extension VariableDeclSyntax: Decl {
   }
 }
 
-extension EnumCaseDeclSyntax: Decl {
+extension EnumCaseDeclSyntax: ValueDecl {
   var descriptiveName: String {
     let list = syntacticNames
     if list.count == 1 {
@@ -328,7 +332,7 @@ extension IfConfigDeclSyntax {
         case let nestedIfConfig as IfConfigDeclSyntax:
           return nestedIfConfig.containsStoredMembers
 
-        case let member as Decl:
+        case let member as ValueDecl:
           return member.isStored
 
         default:
@@ -342,11 +346,11 @@ extension IfConfigDeclSyntax {
 extension DeclChain {
   var isResilient: Bool {
     // Defaults to true because a source file is resilient.
-    return last?.isResilient ?? true
+    return (last as? ValueDecl)?.isResilient ?? true
   }
 
   var isStored: Bool {
-    return last?.isStored ?? false
+    return (last as? ValueDecl)?.isStored ?? false
   }
 
   var maximumAccessLevel: AccessLevel {

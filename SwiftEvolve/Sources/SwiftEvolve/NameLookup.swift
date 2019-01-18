@@ -72,6 +72,9 @@ extension DeclChain {
   ///            `nil` if none were found.
   func lookupUnqualified(_ name: String) -> DeclChain? {
     guard !isEmpty else { return nil }
+    if let dc = last as? DeclContext, let local = dc.lookupLocal(name) {
+      return self.appending(local)
+    }
     return lookupQualified(name) ?? removingLast().lookupUnqualified(name)
   }
 
@@ -107,33 +110,6 @@ extension DeclChain {
   }
 }
 
-// MARK: Name matching.
-
-/// A declaration of some sort of named source entity.
-protocol ValueDecl: Decl {
-  /// Returns true if `self` should be returned for a lookup of `name`.
-  func matches(_ name: String) -> Bool
-}
-
-extension ValueDecl {
-  func matches(_ name: String) -> Bool {
-    return self.syntacticNames.contains(name)
-  }
-}
-
-extension ClassDeclSyntax: ValueDecl {}
-extension StructDeclSyntax: ValueDecl {}
-extension EnumDeclSyntax: ValueDecl {}
-extension ProtocolDeclSyntax: ValueDecl {}
-extension TypealiasDeclSyntax: ValueDecl {}
-extension AssociatedtypeDeclSyntax: ValueDecl {}
-extension ValueDecl where Self: DeclWithParameters {}
-extension FunctionDeclSyntax: ValueDecl {}
-extension InitializerDeclSyntax: ValueDecl {}
-extension SubscriptDeclSyntax: ValueDecl {}
-extension VariableDeclSyntax: ValueDecl {}
-extension EnumCaseDeclSyntax: ValueDecl {}
-
 // MARK: Defining which decls have child decls, and how to locate them.
 
 /// A source entity which acts as a namespace for declarations. A direct name
@@ -142,6 +118,20 @@ extension EnumCaseDeclSyntax: ValueDecl {}
 protocol DeclContext {
   /// Looks for a child of `self` with the name `name`.
   func lookupDirect(_ name: String) -> ValueDecl?
+
+  /// Looks for a value with the name `name` which should only be visible within
+  /// `self`, never by outside access, such as a lexical variable in a function.
+  func lookupLocal(_ name: String) -> ValueDecl?
+}
+
+extension DeclContext {
+  func lookupDirect(_ name: String) -> ValueDecl? {
+    return nil
+  }
+
+  func lookupLocal(_ name: String) -> ValueDecl? {
+    return nil
+  }
 }
 
 extension DeclContext where Self: DeclWithMembers {
@@ -159,21 +149,25 @@ extension DeclContext where Self: DeclWithMembers {
   }
 }
 
-// FIXME: Do we really want this?
 extension DeclContext where Self: AbstractFunctionDecl {
-  func lookupDirect(_ name: String) -> ValueDecl? {
+  func lookupLocal(_ name: String) -> ValueDecl? {
     return ValueDeclFinder(name, in: self).found.first
   }
 }
 
-// FIXME: Do we really want this?
 extension VariableDeclSyntax: DeclContext {
-  func lookupDirect(_ name: String) -> ValueDecl? {
-    return nil
+  func lookupLocal(_ name: String) -> ValueDecl? {
+    return ValueDeclFinder(name, in: self).found.first
   }
 }
 
-private func lookupDirectUnimplemented(parent: Decl, name: String) -> ValueDecl? {
+extension AccessorDeclSyntax: DeclContext {
+  func lookupLocal(_ name: String) -> ValueDecl? {
+    return ValueDeclFinder(name, in: self).found.first
+  }
+}
+
+private func lookupDirectUnimplemented(parent: DeclContext & Syntax, name: String) -> ValueDecl? {
   let parentName = DeclChain(at: parent).descriptiveName
   log(type: .error, #"Not implemented: \#(type(of: parent)).lookupDirect("\#(name)") called on \#(parentName)"#)
   return nil
@@ -191,7 +185,7 @@ extension AssociatedtypeDeclSyntax: DeclContext {
   }
 }
 
-extension SubscriptDeclSyntax {
+extension SubscriptDeclSyntax: DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return lookupDirectUnimplemented(parent: self, name: name)
   }
@@ -221,7 +215,8 @@ fileprivate class ValueDeclFinder: SyntaxVisitor {
   }
 
   private func process(_ node: Syntax) -> SyntaxVisitorContinueKind {
-    if let decl = node as? ValueDecl, decl.matches(syntacticName) {
+    if let decl = node as? ValueDecl,
+      decl.syntacticNames.contains(syntacticName) {
       found.append(decl)
     }
     if node is DeclContext && node != parent {
