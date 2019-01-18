@@ -18,15 +18,15 @@
 import SwiftSyntax
 
 struct DeclChain {
-  private(set) var name: String
+  private(set) var descriptiveName: String
 
   var decls: [Decl] = [] {
-    didSet { name = makeName(from: decls) }
+    didSet { descriptiveName = makeName(from: decls) }
   }
 
   init(decls: [Decl] = []) {
     self.decls = decls
-    name = makeName(from: decls)
+    descriptiveName = makeName(from: decls)
   }
 
   /// - Complexity: O(N)
@@ -61,13 +61,13 @@ struct DeclChain {
 
   /// Returns the name of the declaration as if it were defined directly in the
   /// base type, even if it's actually within an extension.
-  var extendedTypeName: String {
+  var extendedTypeDescriptiveName: String {
     return decls.map { decl -> String in
       if let ext = decl as? ExtensionDeclSyntax {
         return ext.extendedType.typeText
       }
       else {
-        return decl.name
+        return decl.descriptiveName
       }
     }.joined(separator: ".")
   }
@@ -75,7 +75,7 @@ struct DeclChain {
 
 extension DeclChain: CustomStringConvertible {
   var description: String {
-    return name
+    return descriptiveName
   }
 }
 
@@ -114,7 +114,7 @@ extension DeclChain {
 }
 
 private func makeName(from decls: [Decl]) -> String {
-  return decls.map { $0.name }.joined(separator: ".")
+  return decls.map { $0.descriptiveName }.joined(separator: ".")
 }
 
 func reconstructDeclarationChain(at node: Syntax) -> [Decl] {

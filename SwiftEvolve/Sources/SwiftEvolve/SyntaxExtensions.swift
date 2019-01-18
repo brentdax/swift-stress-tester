@@ -36,6 +36,15 @@ protocol DeclWithParameters: DeclSyntax {
   func withParameters(_ parameters: ParameterClauseSyntax?) -> Self
 }
 
+extension DeclWithParameters {
+  var descriptiveName: String {
+    let parameterNames = parameters.parameterList.map { param in
+      "\(param.firstName?.text ?? "_"):"
+    }
+    return "\( baseName )(\( parameterNames.joined() ))"
+  }
+}
+
 protocol AbstractFunctionDecl: DeclWithParameters {
   var body: CodeBlockSyntax? { get }
   func withBody(_ body: CodeBlockSyntax?) -> Self
@@ -71,15 +80,6 @@ extension SubscriptDeclSyntax: DeclWithParameters {
   }
 }
 
-extension DeclWithParameters {
-  var name: String {
-    let parameterNames = parameters.parameterList.map { param in
-      "\(param.firstName?.text ?? "_"):"
-    }
-    return "\( baseName )(\( parameterNames.joined() ))"
-  }
-}
-
 extension SourceLocation: CustomStringConvertible {
   public var description: String {
     return "\(file):\(line):\(column)"
@@ -103,7 +103,7 @@ func != (lhs: Syntax?, rhs: Syntax?) -> Bool {
 
 extension DeclChain {
   var typeSyntax: TypeSyntax {
-    let name = SyntaxFactory.makeIdentifier(last!.name)
+    let name = SyntaxFactory.makeIdentifier(last!.syntacticNames.first!)
     let parent = removingLast()
     
     if parent.decls.allSatisfy({ $0 is SourceFileSyntax }) {

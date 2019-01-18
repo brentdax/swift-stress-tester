@@ -18,7 +18,12 @@
 import SwiftSyntax
 
 protocol Decl: DeclSyntax {
-  var name: String { get }
+  /// A name for this declaration that can be used to describe its place in the
+  /// declaration context hierarchy.
+  var descriptiveName: String { get }
+
+  /// Names for this declaration that would be used in syntax.
+  var syntacticNames: [String] { get }
 
   var isResilient: Bool { get }
   var isStored: Bool { get }
@@ -32,6 +37,16 @@ extension Decl {
 
   var formalAccessLevel: AccessLevel {
     return modifiers?.lazy.compactMap { $0.accessLevel }.first ?? .internal
+  }
+
+  var syntacticNames: [String] {
+    return [descriptiveName]
+  }
+}
+
+extension Decl where Self: DeclWithParameters {
+  var syntacticNames: [String] {
+    return [descriptiveName, baseName]
   }
 }
 
@@ -65,13 +80,14 @@ extension DeclModifierSyntax {
 }
 
 extension SourceFileSyntax: Decl {
-  var name: String { return "(file)" }
+  var syntacticNames: [String] { return [] }
+  var descriptiveName: String { return "(file)" }
 
   var modifiers: ModifierListSyntax? { return nil }
 }
 
 extension ClassDeclSyntax: Decl {
-  var name: String {
+  var descriptiveName: String {
     return identifier.text
   }
 
@@ -81,7 +97,7 @@ extension ClassDeclSyntax: Decl {
 }
 
 extension StructDeclSyntax: Decl {
-  var name: String {
+  var descriptiveName: String {
     return identifier.text
   }
 
@@ -91,7 +107,7 @@ extension StructDeclSyntax: Decl {
 }
 
 extension EnumDeclSyntax: Decl {
-  var name: String {
+  var descriptiveName: String {
     return identifier.text
   }
 
@@ -101,25 +117,27 @@ extension EnumDeclSyntax: Decl {
 }
 
 extension ProtocolDeclSyntax: Decl {
-  var name: String {
+  var descriptiveName: String {
     return identifier.text
   }
 }
 
 extension ExtensionDeclSyntax: Decl {
-  var name: String {
+  var syntacticNames: [String] { return [] }
+
+  var descriptiveName: String {
     return "(extension \(extendedType.typeText))"
   }
 }
 
 extension TypealiasDeclSyntax: Decl {
-  var name: String {
+  var descriptiveName: String {
     return identifier.text
   }
 }
 
 extension AssociatedtypeDeclSyntax: Decl {
-  var name: String {
+  var descriptiveName: String {
     return identifier.text
   }
 }
@@ -129,6 +147,95 @@ extension FunctionDeclSyntax: Decl {}
 extension InitializerDeclSyntax: Decl {}
 
 extension SubscriptDeclSyntax: Decl {}
+
+extension VariableDeclSyntax: Decl {
+  var descriptiveName: String {
+    let list = syntacticNames
+    if list.count == 1 {
+      return list.first!
+    }
+    else {
+      return "(\( list.joined(separator: ", ") ))"
+    }
+  }
+
+  var syntacticNames: [String] {
+    return boundProperties.map { $0.name.text }
+  }
+
+  var isStored: Bool {
+    // FIXME: It's wrong to describe the whole decl as stored or not stored;
+    // each individual binding (or, arguably, each individual bound property)
+    // is stored or not stored.
+    return bindings.contains { $0.isStored }
+  }
+}
+
+extension EnumCaseDeclSyntax: Decl {
+  var descriptiveName: String {
+    let list = syntacticNames
+    if list.count == 1 {
+      return list.first!
+    }
+    else {
+      return "(" + list.joined(separator: ", ") + ")"
+    }
+  }
+
+  var syntacticNames: [String] {
+    return elements.map { $0.name }
+  }
+
+  var isStored: Bool {
+    return true
+  }
+}
+
+// MARK: Infrastructure for analyzing VariableDeclSyntax
+
+extension VariableDeclSyntax {
+  struct BoundProperty: CustomStringConvertible, TextOutputStreamable {
+    var name: TokenSyntax
+    var type: TypeSyntax?
+    var isInitialized: Bool
+
+    init(boundIdentifier: (name: TokenSyntax, type: TypeSyntax?), isInitialized: Bool) {
+      self.name = boundIdentifier.name
+      self.type = boundIdentifier.type
+      self.isInitialized = isInitialized
+    }
+
+    func write<Target>(to target: inout Target) where Target: TextOutputStream {
+      name.write(to: &target)
+      if let type = type {
+        ": ".write(to: &target)
+        type.write(to: &target)
+      }
+      if isInitialized {
+        " = <value>".write(to: &target)
+      }
+    }
+
+    var description: String {
+      var str = ""
+      write(to: &str)
+      return str
+    }
+  }
+
+  var boundProperties: [BoundProperty] {
+    return Array(
+      bindings.lazy
+        .flatMap {
+          zip(
+            $0.boundIdentifiers,
+            repeatElement($0.initializer != nil, count: .max)
+          )
+        }
+        .map { BoundProperty(boundIdentifier: $0.0, isInitialized: $0.1) }
+    )
+  }
+}
 
 extension PatternSyntax {
   var boundIdentifiers: [(name: TokenSyntax, type: TypeSyntax?)] {
@@ -165,90 +272,34 @@ extension PatternBindingSyntax {
       ($0.name, typeAnnotation?.type ?? $0.type)
     }
   }
-}
-
-extension VariableDeclSyntax: Decl {
-  struct BoundProperty: CustomStringConvertible, TextOutputStreamable {
-    var name: TokenSyntax
-    var type: TypeSyntax?
-    var isInitialized: Bool
-
-    init(boundIdentifier: (name: TokenSyntax, type: TypeSyntax?), isInitialized: Bool) {
-      self.name = boundIdentifier.name
-      self.type = boundIdentifier.type
-      self.isInitialized = isInitialized
-    }
-
-    func write<Target>(to target: inout Target) where Target: TextOutputStream {
-      name.write(to: &target)
-      if let type = type {
-        ": ".write(to: &target)
-        type.write(to: &target)
-      }
-      if isInitialized {
-        " = <value>".write(to: &target)
-      }
-    }
-
-    var description: String {
-      var str = ""
-      write(to: &str)
-      return str
-    }
-  }
-
-  var name: String {
-    let list = boundProperties
-    if list.count == 1 { return list.first!.name.text }
-    let nameList = list.map { $0.name.text }
-    return "(\( nameList.joined(separator: ", ") ))"
-  }
-
-  var boundProperties: [BoundProperty] {
-    return Array(
-      bindings.lazy
-        .flatMap {
-          zip(
-            $0.boundIdentifiers,
-            repeatElement($0.initializer != nil, count: .max)
-          )
-        }
-        .map { BoundProperty(boundIdentifier: $0.0, isInitialized: $0.1) }
-    )
-  }
-
-  // FIXME: Is isResilient == true correct?
 
   var isStored: Bool {
-    // FIXME: It's wrong to describe the whole decl as stored or not stored;
-    // each individual binding (or, arguably, each individual bound property)
-    // is stored or not stored.
-    return bindings.allSatisfy { binding in
-      switch binding.accessor {
-      case is CodeBlockSyntax:
-        // There's a computed getter.
-        return false
+    switch accessor {
+    case is CodeBlockSyntax:
+      // There's a computed getter.
+      return false
 
-      case let accessorBlock as AccessorBlockSyntax:
-        // Check the individual accessors.
-        return accessorBlock.accessors.allSatisfy { accessor in
-          switch accessor.accessorKind.text {
-          case "willSet", "didSet":
-            // These accessors are allowed on stored properties.
-            return true
-          default:
-            // All other accessors are assumed to make this computed.
-            return false
-          }
+    case let accessorBlock as AccessorBlockSyntax:
+      // Check the individual accessors.
+      return accessorBlock.accessors.allSatisfy { accessor in
+        switch accessor.accessorKind.text {
+        case "willSet", "didSet":
+          // These accessors are allowed on stored properties.
+          return true
+        default:
+          // All other accessors are assumed to make this computed.
+          return false
         }
-
-      default:
-        // This binding doesn't include any computed getters.
-        return true
       }
+
+    default:
+      // This binding doesn't include any computed getters.
+      return true
     }
   }
 }
+
+// MARK: Infrastructure for analyzing enum cases
 
 extension EnumCaseElementSyntax {
   var name: String {
@@ -262,21 +313,6 @@ extension EnumCaseElementSyntax {
       params = ""
     }
     return "\(identifier.text)(\( params ))"
-  }
-}
-
-extension EnumCaseDeclSyntax: Decl {
-  var name: String {
-    if elements.count == 1 {
-      return elements.first!.name
-    }
-    else {
-      return "(" + elements.map { $0.name }.joined(separator: ", ") + ")"
-    }
-  }
-
-  var isStored: Bool {
-    return true
   }
 }
 

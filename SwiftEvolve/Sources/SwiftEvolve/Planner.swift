@@ -92,7 +92,7 @@ public class Planner<G: RandomNumberGenerator>: SyntaxAnyVisitor {
     _ evolution: Evolution, of node: Syntax
   ) -> PlannedEvolution {
     return PlannedEvolution(
-      sourceLocation: "\(context.declChain.name) \(makeLocationString(for: node))",
+      sourceLocation: "\(context.declChain.descriptiveName) \(makeLocationString(for: node))",
       file: url,
       syntaxPath: context.syntaxPath,
       evolution: AnyEvolution(evolution)

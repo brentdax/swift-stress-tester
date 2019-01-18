@@ -286,7 +286,7 @@ extension SynthesizeMemberwiseInitializerEvolution {
       default:
         // Consistency check: This isn't somehow stored, is it?
         if let member = membersItem.decl as? Decl {
-          assert(!member.isStored, "\(member.name) is a stored non-property???")
+          assert(!member.isStored, "\(member.descriptiveName) is a stored non-property???")
         }
 
         // If not, then we don't care.

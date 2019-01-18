@@ -117,7 +117,7 @@ protocol ValueDecl: Decl {
 
 extension ValueDecl {
   func matches(_ name: String) -> Bool {
-    return self.name == name
+    return self.syntacticNames.contains(name)
   }
 }
 
@@ -127,28 +127,12 @@ extension EnumDeclSyntax: ValueDecl {}
 extension ProtocolDeclSyntax: ValueDecl {}
 extension TypealiasDeclSyntax: ValueDecl {}
 extension AssociatedtypeDeclSyntax: ValueDecl {}
-
-extension ValueDecl where Self: DeclWithParameters {
-  func matches(_ name: String) -> Bool {
-    return baseName == name || self.name == name
-  }
-}
-
+extension ValueDecl where Self: DeclWithParameters {}
 extension FunctionDeclSyntax: ValueDecl {}
 extension InitializerDeclSyntax: ValueDecl {}
 extension SubscriptDeclSyntax: ValueDecl {}
-
-extension VariableDeclSyntax: ValueDecl {
-  func matches(_ name: String) -> Bool {
-    return boundProperties.contains { $0.name.text == name }
-  }
-}
-
-extension EnumCaseDeclSyntax: ValueDecl {
-  func matches(_ name: String) -> Bool {
-    return elements.contains { $0.name == name }
-  }
-}
+extension VariableDeclSyntax: ValueDecl {}
+extension EnumCaseDeclSyntax: ValueDecl {}
 
 // MARK: Defining which decls have child decls, and how to locate them.
 
@@ -190,7 +174,7 @@ extension VariableDeclSyntax: DeclContext {
 }
 
 private func lookupDirectUnimplemented(parent: Decl, name: String) -> ValueDecl? {
-  let parentName = DeclChain(at: parent).name
+  let parentName = DeclChain(at: parent).descriptiveName
   log(type: .error, #"Not implemented: \#(type(of: parent)).lookupDirect("\#(name)") called on \#(parentName)"#)
   return nil
 }
@@ -223,13 +207,13 @@ extension SourceFileSyntax: DeclContext {
 
 /// A visitor which finds a ValueDecl child of a DeclContext with a given name.
 fileprivate class ValueDeclFinder: SyntaxVisitor {
-  private let name: String
+  private let syntacticName: String
   let parent: DeclContext & Syntax
   var found: [ValueDecl] = []
 
-  init(_ name: String, in parent: DeclContext & Syntax) {
+  init(_ syntacticName: String, in parent: DeclContext & Syntax) {
     self.parent = parent
-    self.name = name
+    self.syntacticName = syntacticName
 
     super.init()
 
@@ -237,7 +221,7 @@ fileprivate class ValueDeclFinder: SyntaxVisitor {
   }
 
   private func process(_ node: Syntax) -> SyntaxVisitorContinueKind {
-    if let decl = node as? ValueDecl, decl.matches(name) {
+    if let decl = node as? ValueDecl, decl.matches(syntacticName) {
       found.append(decl)
     }
     if node is DeclContext && node != parent {
@@ -341,7 +325,7 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
     current = DeclChain(decls: [])
 
     guard let target = DeclChain(at: node).extendedDeclChain else {
-      lookingFor = current.extendedTypeName
+      lookingFor = current.extendedTypeDescriptiveName
       found = []
 
       super.init()
@@ -349,7 +333,7 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
       return
     }
 
-    lookingFor = target.extendedTypeName
+    lookingFor = target.extendedTypeDescriptiveName
     found = [target.last as! DeclContext & Syntax]
 
     super.init()
@@ -375,7 +359,7 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
 
   override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
     // FIXME: Kind of gross, but at least it's not circular.
-    if current.extendedTypeName == lookingFor {
+    if current.extendedTypeDescriptiveName == lookingFor {
       found.append(node)
     }
 

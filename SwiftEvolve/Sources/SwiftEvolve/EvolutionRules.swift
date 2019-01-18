@@ -37,7 +37,7 @@ public struct EvolutionRules {
   }
   
   func allKinds(for decl: DeclChain) -> [AnyEvolution.Kind] {
-    let declName = decl.name
+    let declName = decl.descriptiveName
 
     return AnyEvolution.Kind.allCases.filter { kind in
       permit(kind, forDeclName: declName)
