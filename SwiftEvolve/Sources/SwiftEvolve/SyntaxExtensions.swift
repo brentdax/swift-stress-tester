@@ -18,7 +18,7 @@
 import SwiftSyntax
 import Foundation
 
-protocol DeclWithMembers: DeclSyntax, MayContainChildNominalDecls {
+protocol DeclWithMembers: DeclSyntax, _DeclContext {
   var members: MemberDeclBlockSyntax { get }
   func withMembers(_ newChild: MemberDeclBlockSyntax?) -> Self
 }

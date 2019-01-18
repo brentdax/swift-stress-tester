@@ -16,31 +16,39 @@
 
 import SwiftSyntax
 
-protocol MayContainSiblingNominalDecls: Syntax {
-  /// Implements name lookup within the parent context against this node. That
-  /// is, if `self` or some child of `self` should be returned from
-  /// `lookupDirect(_:)` on its `DeclContext`, returns that node.
-  func lookupFlat(_ name: String) -> Decl?
-}
-
-protocol MayContainChildNominalDecls: Syntax {
-  /// Looks for a child of `self` with the name `name`.
-  func lookupDirect(_ name: String) -> Decl?
-}
+// MARK: External API. This is what most code outside this file should use.
 
 extension DeclContext {
   /// Looks up `name` in the last declaration in `declarationChain`.
+  ///
+  /// - Parameter name: The name of the declaration to look up.
+  /// - Returns: The first child declaration of `last` to match `name`, or
+  ///            `nil` if none were found.
   func lookupQualified(_ name: String) -> DeclContext? {
-    guard let decl = last as? MayContainChildNominalDecls else {
+    guard let decl = last as? _DeclContext else {
       return nil
     }
+    // FIXME: This ought to look up `name` in superclasses and protocol
+    // extensions if `last` doesn't contain `name`.
     return decl.lookupDirect(name).map(self.appending(_:))
   }
 
+  /// Looks up `identifier` in the last declaration in `declarationChain`.
+  ///
+  /// - Parameter identifier: A token containing the name of the declaration to
+  ///             look up.
+  /// - Returns: The first child declaration of `last` to match `identifier`, or
+  ///            `nil` if none were found.
   func lookupQualified(_ identifier: TokenSyntax) -> DeclContext? {
     return lookupQualified(identifier.text)
   }
 
+  /// Looks up `typeSyntax` in the last declaration in `declarationChain`.
+  ///
+  /// - Parameter typeSyntax: A `TypeSyntax` instance identifying a type to look
+  ///              up. This may be a `MemberTypeIdentifierSyntax`.
+  /// - Returns: The first child declaration of `last` to match `typeSyntax`, or
+  ///            `nil` if none were found.
   func lookupQualified(_ typeSyntax: TypeSyntax) -> DeclContext? {
     switch typeSyntax {
     case let ts as SimpleTypeIdentifierSyntax:
@@ -56,15 +64,33 @@ extension DeclContext {
 
   /// Looks up `name` in the declarations in `declarationChain`, from last to
   /// first.
+  ///
+  /// - Parameter name: The name of the declaration to look up.
+  /// - Returns: The first child declaration of `last` to match `typeSyntax`, or
+  ///            `nil` if none were found.
   func lookupUnqualified(_ name: String) -> DeclContext? {
     guard !isEmpty else { return nil }
     return lookupQualified(name) ?? removingLast().lookupUnqualified(name)
   }
 
+  /// Looks up `identifier` in the declarations in `declarationChain`, from last
+  /// to first.
+  ///
+  /// - Parameter identifier: A token containing the name of the declaration to
+  ///             look up.
+  /// - Returns: The first child declaration of `last` to match `identifier`, or
+  ///            `nil` if none were found.
   func lookupUnqualified(_ identifier: TokenSyntax) -> DeclContext? {
     return lookupUnqualified(identifier.text)
   }
 
+  /// Looks up `typeSyntax` in the declarations in `declarationChain`, from last
+  /// to first.
+  ///
+  /// - Parameter typeSyntax: A `TypeSyntax` instance identifying a type to look
+  ///              up. This may be a `MemberTypeIdentifierSyntax`.
+  /// - Returns: The first child declaration of `last` to match `identifier`, or
+  ///            `nil` if none were found.
   func lookupUnqualified(_ typeSyntax: TypeSyntax) -> DeclContext? {
     switch typeSyntax {
     case let ts as SimpleTypeIdentifierSyntax:
@@ -79,60 +105,67 @@ extension DeclContext {
   }
 }
 
-// MARK: Decl sibling lookup
-//
-// This is basically how various declarations match themselves against a name.
+// MARK: Name matching.
 
-// The basic implementation for most decls:
-extension Decl /*: MayContainSiblingNominalDecls */ {
-  func lookupFlat(_ name: String) -> Decl? {
-    if name == self.name { return self }
-    return nil
+protocol ValueDecl: Decl, MayContainSiblingNominalDecls {
+  /// Returns true if `self` should be returned for a lookup of `name`.
+  func matches(_ name: String) -> Bool
+}
+
+extension ValueDecl {
+  func matches(_ name: String) -> Bool {
+    return self.name == name
   }
 }
 
-// Types with multiple names per declaration:
-extension VariableDeclSyntax {
-  func lookupFlat(_ name: String) -> Decl? {
-    // If any name in this decl matches, return this decl.
-    return boundProperties.contains { $0.name.text == name } ? self : nil
-  }
-}
+extension ClassDeclSyntax: ValueDecl {}
+extension StructDeclSyntax: ValueDecl {}
+extension EnumDeclSyntax: ValueDecl {}
+extension ProtocolDeclSyntax: ValueDecl {}
+extension TypealiasDeclSyntax: ValueDecl {}
+extension AssociatedtypeDeclSyntax: ValueDecl {}
 
-extension EnumCaseDeclSyntax {
+extension ValueDecl where Self: DeclWithParameters {
   func lookupFlat(_ name: String) -> Decl? {
-    // If any name in this decl matches, return this decl.
-    return elements.contains { $0.name == name } ? self : nil
-  }
-}
-
-extension Decl where Self: DeclWithParameters, Self: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> Decl? {
-    // Can be named by either base name or compound name.
     return baseName == name || self.name == name ? self : nil
   }
 }
 
-// Types without utterable names:
-extension SourceFileSyntax {
-  func lookupFlat(_ name: String) -> Decl? {
-    // These are impossible to name, even though they are Decl enough to need
-    // to be in a DeclContext.
-    return nil
+extension FunctionDeclSyntax: ValueDecl {}
+extension InitializerDeclSyntax: ValueDecl {}
+extension SubscriptDeclSyntax: ValueDecl {}
+
+extension VariableDeclSyntax: ValueDecl {
+  func matches(_ name: String) -> Bool {
+    return boundProperties.contains { $0.name.text == name }
   }
 }
 
-extension ExtensionDeclSyntax {
-  func lookupFlat(_ name: String) -> Decl? {
-    // The names of extensions cannot be directly uttered; their children get
-    // merged into the types they extend.
-    return nil
+extension EnumCaseDeclSyntax: ValueDecl {
+  func matches(_ name: String) -> Bool {
+    return elements.contains { $0.name == name }
+  }
+}
+
+// MARK: Finding children of a known parent. This implementation is transitional.
+
+/// Transitional.
+protocol MayContainSiblingNominalDecls: Syntax {
+  /// Implements name lookup within the parent context against this node. That
+  /// is, if `self` or some child of `self` should be returned from
+  /// `lookupDirect(_:)` on its `DeclContext`, returns that node.
+  func lookupFlat(_ name: String) -> ValueDecl?
+}
+
+extension ValueDecl {
+  func lookupFlat(_ name: String) -> ValueDecl? {
+    return matches(name) ? self : nil
   }
 }
 
 // Syntax nodes which can contain declarations belonging to the parent type:
 extension MemberDeclListSyntax: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> Decl? {
+  func lookupFlat(_ name: String) -> ValueDecl? {
     for item in self {
       if let decl = (item.decl as? MayContainSiblingNominalDecls)?.lookupFlat(name) {
         return decl
@@ -143,7 +176,7 @@ extension MemberDeclListSyntax: MayContainSiblingNominalDecls {
 }
 
 extension IfConfigDeclSyntax: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> Decl? {
+  func lookupFlat(_ name: String) -> ValueDecl? {
     // HACK: As a simplifying assumption, we assume that if the same symbol is
     // declared in several different clauses of a #if, the declarations will
     // be similar enough to substitute them. For instance, a type will not be
@@ -166,7 +199,7 @@ extension IfConfigDeclSyntax: MayContainSiblingNominalDecls {
 }
 
 extension CodeBlockItemListSyntax: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> Decl? {
+  func lookupFlat(_ name: String) -> ValueDecl? {
     for item in self {
       guard let statement = item.item as? MayContainSiblingNominalDecls else {
         log(type: .error, "Not sure how to handle CodeBlockItemListSyntax clause elements of type \(type(of: item.item))")
@@ -181,7 +214,7 @@ extension CodeBlockItemListSyntax: MayContainSiblingNominalDecls {
 }
 
 extension WithStatementsSyntax where Self: MayContainSiblingNominalDecls {
-  func lookupFlat(_ name: String) -> Decl? {
+  func lookupFlat(_ name: String) -> ValueDecl? {
     return statements.lookupFlat(name)
   }
 }
@@ -191,10 +224,16 @@ extension ClosureExprSyntax: MayContainSiblingNominalDecls {}
 extension SourceFileSyntax: MayContainSiblingNominalDecls {}
 extension SwitchCaseSyntax: MayContainSiblingNominalDecls {}
 
-// MARK: Decl child lookup
+// MARK: Defining which decls have child decls, and how to locate them.
 
-extension DeclWithMembers /*: MayContainChildNominalDecls */ where Self: Decl {
-  func lookupDirect(_ name: String) -> Decl? {
+// FIXME: Should be called DeclContext.
+protocol _DeclContext {
+  /// Looks for a child of `self` with the name `name`.
+  func lookupDirect(_ name: String) -> ValueDecl?
+}
+
+extension _DeclContext where Self: DeclWithMembers {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     // Check all of this type's member lists to see if any of them have the
     // declaration.
     for memberList in collectMemberLists() {
@@ -207,50 +246,46 @@ extension DeclWithMembers /*: MayContainChildNominalDecls */ where Self: Decl {
   }
 }
 
+// FIXME: Do we really want this?
 extension Decl where Self: AbstractFunctionDecl {
-  func lookupDirect(_ name: String) -> Decl? {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     return body?.lookupFlat(name)
   }
 }
 
+// FIXME: Do we really want this?
 extension VariableDeclSyntax {
-  func lookupDirect(_ name: String) -> Decl? {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     return nil
   }
 }
 
-extension EnumCaseDeclSyntax {
-  func lookupDirect(_ name: String) -> Decl? {
-    return nil
-  }
-}
-
-private func lookupDirectUnimplemented(parent: Decl, name: String) -> Decl? {
+private func lookupDirectUnimplemented(parent: Decl, name: String) -> ValueDecl? {
   let parentName = DeclContext(at: parent).name
   log(type: .error, #"Not implemented: \#(type(of: parent)).lookupDirect("\#(name)") called on \#(parentName)"#)
   return nil
 }
 
-extension TypealiasDeclSyntax: MayContainChildNominalDecls {
-  func lookupDirect(_ name: String) -> Decl? {
+extension TypealiasDeclSyntax: _DeclContext {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     return lookupDirectUnimplemented(parent: self, name: name)
   }
 }
 
-extension AssociatedtypeDeclSyntax: MayContainChildNominalDecls {
-  func lookupDirect(_ name: String) -> Decl? {
+extension AssociatedtypeDeclSyntax: _DeclContext {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     return lookupDirectUnimplemented(parent: self, name: name)
   }
 }
 
 extension SubscriptDeclSyntax {
-  func lookupDirect(_ name: String) -> Decl? {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     return lookupDirectUnimplemented(parent: self, name: name)
   }
 }
 
-extension SourceFileSyntax: MayContainChildNominalDecls {
-  func lookupDirect(_ name: String) -> Decl? {
+extension SourceFileSyntax: _DeclContext {
+  func lookupDirect(_ name: String) -> ValueDecl? {
     return statements.lookupFlat(name)
   }
 }

@@ -206,7 +206,7 @@ extension DeclModifierSyntax {
   }
 }
 
-protocol Decl: DeclSyntax, MayContainSiblingNominalDecls {
+protocol Decl: DeclSyntax {
   var name: String { get }
 
   var isResilient: Bool { get }
