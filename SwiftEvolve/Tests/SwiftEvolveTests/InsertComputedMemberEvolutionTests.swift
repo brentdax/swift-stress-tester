@@ -16,7 +16,7 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
       """
     )
     let decl = code.filter(whereIs: EnumDeclSyntax.self).first!
-    let dc = DeclContext(declarationChain: [code, decl])
+    let dc = DeclChain(decls: [code, decl])
 
     XCTAssertThrowsError(
       try InsertComputedMemberEvolution(
@@ -212,7 +212,7 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
       extension Foo.Nested {}
       """
     )
-    let dcs = code.filter(whereIs: DeclSyntax.self).map(DeclContext.init(at:))
+    let dcs = code.filter(whereIs: DeclSyntax.self).map(DeclChain.init(at:))
 
     // 0 is the SourceFileSyntax.
     XCTAssertFalse(MemberKind.initializer.mustBeConvenience(for: dcs[0]))
@@ -226,7 +226,7 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
 
 //  func testMustBeConvenienceRegression() throws {
 //    let code = try SyntaxParser.parse(URL(fileURLWithPath: "/Volumes/DocumentsHD/Code/open-swift-alt/swift/stdlib/public/core/DictionaryBridging.swift"))
-//    let dc = DeclContext(declarationChain: [code])
+//    let dc = DeclChain(decls: [code])
 //    XCTAssertNotNil(dc.lookupQualified("__CocoaDictionary"))
 //  }
 }

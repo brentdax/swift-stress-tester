@@ -18,7 +18,7 @@
 import SwiftSyntax
 import Foundation
 
-protocol DeclWithMembers: DeclSyntax, _DeclContext {
+protocol DeclWithMembers: DeclSyntax, DeclContext {
   var members: MemberDeclBlockSyntax { get }
   func withMembers(_ newChild: MemberDeclBlockSyntax?) -> Self
 }
@@ -101,12 +101,12 @@ func != (lhs: Syntax?, rhs: Syntax?) -> Bool {
   return !(lhs == rhs)
 }
 
-extension DeclContext {
+extension DeclChain {
   var typeSyntax: TypeSyntax {
     let name = SyntaxFactory.makeIdentifier(last!.name)
     let parent = removingLast()
     
-    if parent.declarationChain.allSatisfy({ $0 is SourceFileSyntax }) {
+    if parent.decls.allSatisfy({ $0 is SourceFileSyntax }) {
       // Base case
       return SyntaxFactory.makeSimpleTypeIdentifier(
         name: name,
@@ -124,7 +124,7 @@ extension DeclContext {
 }
 
 extension TypeSyntax {
-  func absolute(in dc: DeclContext) -> TypeSyntax {
+  func absolute(in dc: DeclChain) -> TypeSyntax {
     guard let resolved = dc.lookupUnqualified(self) else {
       return self
     }
@@ -135,7 +135,7 @@ extension TypeSyntax {
     return resolved.typeSyntax
   }
 
-  func isFunctionType(in dc: DeclContext) -> Bool {
+  func isFunctionType(in dc: DeclChain) -> Bool {
     let abs = absolute(in: dc)
     
     switch abs {

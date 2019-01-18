@@ -59,7 +59,7 @@ class RegressionTests: XCTestCase {
         """
       )
       for decl in code.filter(whereIs: StructDeclSyntax.self) {
-        let dc = DeclContext(declarationChain: [code, decl])
+        let dc = DeclChain(decls: [code, decl])
 
         XCTAssertThrowsError(
           try SynthesizeMemberwiseInitializerEvolution(
@@ -69,7 +69,7 @@ class RegressionTests: XCTestCase {
         )
 
         for ifConfig in decl.filter(whereIs: IfConfigDeclSyntax.self) {
-          let dc = DeclContext(declarationChain: [code, decl])
+          let dc = DeclChain(decls: [code, decl])
 
           XCTAssertNil(
             try SynthesizeMemberwiseInitializerEvolution(
@@ -94,7 +94,7 @@ class RegressionTests: XCTestCase {
         """
       )
       for decl in code.filter(whereIs: StructDeclSyntax.self) {
-        let dc = DeclContext(declarationChain: [code, decl])
+        let dc = DeclChain(decls: [code, decl])
 
         XCTAssertNoThrow(
           try SynthesizeMemberwiseInitializerEvolution(
@@ -104,7 +104,7 @@ class RegressionTests: XCTestCase {
         )
 
         for ifConfig in decl.filter(whereIs: IfConfigDeclSyntax.self) {
-          let dc = DeclContext(declarationChain: [code, decl])
+          let dc = DeclChain(decls: [code, decl])
 
           XCTAssertNil(
             try SynthesizeMemberwiseInitializerEvolution(
@@ -130,7 +130,7 @@ class RegressionTests: XCTestCase {
         """
       )
       for decl in code.filter(whereIs: StructDeclSyntax.self) {
-        let dc = DeclContext(declarationChain: [code, decl])
+        let dc = DeclChain(decls: [code, decl])
 
         XCTAssertNoThrow(
           try SynthesizeMemberwiseInitializerEvolution(
@@ -140,7 +140,7 @@ class RegressionTests: XCTestCase {
         )
 
         for ifConfig in decl.filter(whereIs: IfConfigDeclSyntax.self) {
-          let dc = DeclContext(declarationChain: [code, decl])
+          let dc = DeclChain(decls: [code, decl])
 
           XCTAssertNil(
             try SynthesizeMemberwiseInitializerEvolution(

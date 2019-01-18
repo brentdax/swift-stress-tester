@@ -40,7 +40,7 @@ protocol Evolution: Codable {
   ///           thrown and will pass through all the initialization machinery.
   /// - Returns: The evolution instance, or `nil` if applying the evolution
   ///            would be a no-op.
-  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G: RandomNumberGenerator
 
   /// Creates instances of any evolutions that need to be applied to `node`
@@ -57,7 +57,7 @@ protocol Evolution: Codable {
   /// - Note: Implementations should usually make the prerequisite evolutions
   ///         by calling `makeWithPrerequisites(for:in:using:)`.
   func makePrerequisites<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
+    for node: Syntax, in decl: DeclChain, using rng: inout G
   ) throws -> [Evolution] where G: RandomNumberGenerator
 
   /// Applies the evolution to `node`.
@@ -84,7 +84,7 @@ extension Evolution {
   /// - Returns: An array of evolutions which all need to be applied together,
   ///            or `nil` if the evolution would be a no-op.
   static func makeWithPrerequisites<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
+    for node: Syntax, in decl: DeclChain, using rng: inout G
   ) throws -> [Evolution]? where G: RandomNumberGenerator {
     guard let evo = try self.init(for: node, in: decl, using: &rng) else {
       return nil
@@ -94,7 +94,7 @@ extension Evolution {
   }
 
   func makePrerequisites<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
+    for node: Syntax, in decl: DeclChain, using rng: inout G
   ) throws -> [Evolution] where G: RandomNumberGenerator {
     return []
   }
@@ -182,7 +182,7 @@ struct InsertComputedUnnamedMemberEvolution: Evolution {
 // MARK: Implementations
 
 extension ShuffleMembersEvolution {
-  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G: RandomNumberGenerator
   {
     guard
@@ -208,7 +208,7 @@ extension ShuffleMembersEvolution {
   }
 
   func makePrerequisites<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
+    for node: Syntax, in decl: DeclChain, using rng: inout G
   ) throws -> [Evolution] where G : RandomNumberGenerator {
     return [
       try SynthesizeMemberwiseInitializerEvolution
@@ -228,7 +228,7 @@ extension ShuffleMembersEvolution {
 }
 
 extension SynthesizeMemberwiseInitializerEvolution {
-  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G : RandomNumberGenerator
   {
     guard let members = node as? MemberDeclListSyntax else {
@@ -363,7 +363,7 @@ extension SynthesizeMemberwiseInitializerEvolution {
 }
 
 extension ShuffleGenericRequirementsEvolution {
-  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G: RandomNumberGenerator
   {
     guard
@@ -395,7 +395,7 @@ extension ShuffleGenericRequirementsEvolution {
 enum MemberKind: String, CaseIterable, Codable {
   case function, variable, subscription, initializer
 
-  func mustBeConvenience(for dc: DeclContext) -> Bool {
+  func mustBeConvenience(for dc: DeclChain) -> Bool {
     guard self == .initializer else { return false }
     return dc.extendedDecl is ClassDeclSyntax
   }
@@ -520,7 +520,7 @@ enum StaticKeyword: String, Codable {
 }
 
 extension AccessLevel {
-  static func allCases(for dc: DeclContext) -> [AccessLevel] {
+  static func allCases(for dc: DeclChain) -> [AccessLevel] {
     let maximum = dc.maximumAccessLevel
     return [.private, .fileprivate, .internal, .public].filter {
       $0 <= maximum
@@ -545,7 +545,7 @@ extension AccessLevel {
 }
 
 extension InsertComputedMemberEvolution {
-  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G: RandomNumberGenerator
   {
     guard
@@ -636,7 +636,7 @@ extension InsertComputedMemberEvolution {
 }
 
 extension InsertComputedUnnamedMemberEvolution {
-  init?<G>(for node: Syntax, in decl: DeclContext, using rng: inout G) throws
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G: RandomNumberGenerator
   {
     guard
@@ -665,7 +665,7 @@ extension InsertComputedUnnamedMemberEvolution {
   }
 
   func makePrerequisites<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
+    for node: Syntax, in decl: DeclChain, using rng: inout G
     ) throws -> [Evolution] where G : RandomNumberGenerator {
     guard memberKind == .initializer else {
       return []

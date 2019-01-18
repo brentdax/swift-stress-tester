@@ -22,7 +22,7 @@ public struct EvolutionRules {
   var exclusions: [AnyEvolution.Kind: Set<String>?]
 
   func makeAll<G>(
-    for node: Syntax, in decl: DeclContext, using rng: inout G
+    for node: Syntax, in decl: DeclChain, using rng: inout G
   ) throws -> [[Evolution]] where G: RandomNumberGenerator {
     return try allKinds(for: decl).compactMap { kind -> [Evolution]? in
       do {
@@ -36,7 +36,7 @@ public struct EvolutionRules {
     }
   }
   
-  func allKinds(for decl: DeclContext) -> [AnyEvolution.Kind] {
+  func allKinds(for decl: DeclChain) -> [AnyEvolution.Kind] {
     let declName = decl.name
 
     return AnyEvolution.Kind.allCases.filter { kind in

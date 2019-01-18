@@ -13,7 +13,7 @@ class ShuffleGenericRequirementsEvolutionTests: XCTestCase {
       """
     )
     let decl = code.filter(whereIs: FunctionDeclSyntax.self).first!
-    let dc = DeclContext(declarationChain: [code, decl])
+    let dc = DeclChain(decls: [code, decl])
 
     let evo = try ShuffleGenericRequirementsEvolution(
       for: decl.genericWhereClause!.requirementList, in: dc, using: &predictableRNG
@@ -33,7 +33,7 @@ class ShuffleGenericRequirementsEvolutionTests: XCTestCase {
       """
     )
     let decl = code.filter(whereIs: FunctionDeclSyntax.self).first!
-    let dc = DeclContext(declarationChain: [code, decl])
+    let dc = DeclChain(decls: [code, decl])
 
     XCTAssertThrowsError(
       try ShuffleGenericRequirementsEvolution(

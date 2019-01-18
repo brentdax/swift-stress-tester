@@ -2,7 +2,7 @@ import XCTest
 import SwiftSyntax
 @testable import SwiftEvolve
 
-class DeclContextTests: XCTestCase {
+class DeclChainTests: XCTestCase {
   func testMaximumAccessLevelBasic() throws {
     let code = try SyntaxParser.parse(source:
       """
@@ -29,36 +29,36 @@ class DeclContextTests: XCTestCase {
       """
     )
 
-    func makeDeclContext(_ decl: Decl) -> DeclContext {
-      return DeclContext(declarationChain: [code, decl])
+    func makeDeclChain(_ decl: Decl) -> DeclChain {
+      return DeclChain(decls: [code, decl])
     }
 
     let explicitlyInternal = code.filter(whereIs: StructDeclSyntax.self).first!
-    XCTAssertEqual(makeDeclContext(explicitlyInternal).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(explicitlyInternal).maximumAccessLevel,
                    .internal)
 
     let implicitlyInternal = code.filter(whereIs: EnumDeclSyntax.self).first!
-    XCTAssertEqual(makeDeclContext(implicitlyInternal).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(implicitlyInternal).maximumAccessLevel,
                    .internal)
 
     let explicitlyPrivate = code.filter(whereIs: ProtocolDeclSyntax.self).first!
-    XCTAssertEqual(makeDeclContext(explicitlyPrivate).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(explicitlyPrivate).maximumAccessLevel,
                    .private)
 
     let explicitlyOpen = code.filter(whereIs: ClassDeclSyntax.self).first!
-    XCTAssertEqual(makeDeclContext(explicitlyOpen).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(explicitlyOpen).maximumAccessLevel,
                    .open)
 
     let extensions = code.filter(whereIs: ExtensionDeclSyntax.self)
-    XCTAssertEqual(makeDeclContext(extensions[0]).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(extensions[0]).maximumAccessLevel,
                    .open)
-    XCTAssertEqual(makeDeclContext(extensions[1]).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(extensions[1]).maximumAccessLevel,
                    .private)
-    XCTAssertEqual(makeDeclContext(extensions[2]).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(extensions[2]).maximumAccessLevel,
                    .internal)
-    XCTAssertEqual(makeDeclContext(extensions[3]).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(extensions[3]).maximumAccessLevel,
                    .private)
-    XCTAssertEqual(makeDeclContext(extensions[4]).maximumAccessLevel,
+    XCTAssertEqual(makeDeclChain(extensions[4]).maximumAccessLevel,
                    .private)
   }
 
@@ -95,7 +95,7 @@ class DeclContextTests: XCTestCase {
       #endif
       """
     )
-    let dc = DeclContext(declarationChain: [code])
+    let dc = DeclChain(decls: [code])
 
     XCTIfLet(dc.lookupQualified("MyClass")) { MyClass in
       XCTAssertTrue(MyClass.last is ClassDeclSyntax)

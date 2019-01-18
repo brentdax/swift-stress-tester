@@ -19,13 +19,13 @@ import SwiftSyntax
 
 struct Context {
   var syntaxPath: [Int] = []
-  var declContext = DeclContext()
+  var declChain = DeclChain()
 
   @discardableResult
   mutating func enter(_ node: Syntax) -> Bool {
     syntaxPath.append(node.indexInParent)
     if let node = node as? Decl {
-      declContext.append(node)
+      declChain.append(node)
       return true
     }
     return false
@@ -34,8 +34,8 @@ struct Context {
   @discardableResult
   mutating func leave(_ node: Syntax) -> Bool {
     syntaxPath.removeLast()
-    if declContext.last == node {
-      declContext.removeLast()
+    if declChain.last == node {
+      declChain.removeLast()
       return true
     }
     return false

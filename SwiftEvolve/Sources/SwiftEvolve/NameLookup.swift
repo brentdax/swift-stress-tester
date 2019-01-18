@@ -20,14 +20,14 @@ import SwiftSyntax
 
 // MARK: External API. This is what most code outside this file should use.
 
-extension DeclContext {
-  /// Looks up `name` in the last declaration in `declarationChain`.
+extension DeclChain {
+  /// Looks up `name` in the last declaration in `decls`.
   ///
   /// - Parameter name: The name of the declaration to look up.
   /// - Returns: The first child declaration of `last` to match `name`, or
   ///            `nil` if none were found.
-  func lookupQualified(_ name: String) -> DeclContext? {
-    guard let decl = last as? _DeclContext else {
+  func lookupQualified(_ name: String) -> DeclChain? {
+    guard let decl = last as? DeclContext else {
       return nil
     }
     // FIXME: This ought to look up `name` in superclasses and protocol
@@ -35,23 +35,23 @@ extension DeclContext {
     return decl.lookupDirect(name).map(self.appending(_:))
   }
 
-  /// Looks up `identifier` in the last declaration in `declarationChain`.
+  /// Looks up `identifier` in the last declaration in `decls`.
   ///
   /// - Parameter identifier: A token containing the name of the declaration to
   ///             look up.
   /// - Returns: The first child declaration of `last` to match `identifier`, or
   ///            `nil` if none were found.
-  func lookupQualified(_ identifier: TokenSyntax) -> DeclContext? {
+  func lookupQualified(_ identifier: TokenSyntax) -> DeclChain? {
     return lookupQualified(identifier.text)
   }
 
-  /// Looks up `typeSyntax` in the last declaration in `declarationChain`.
+  /// Looks up `typeSyntax` in the last declaration in `decls`.
   ///
   /// - Parameter typeSyntax: A `TypeSyntax` instance identifying a type to look
   ///              up. This may be a `MemberTypeIdentifierSyntax`.
   /// - Returns: The first child declaration of `last` to match `typeSyntax`, or
   ///            `nil` if none were found.
-  func lookupQualified(_ typeSyntax: TypeSyntax) -> DeclContext? {
+  func lookupQualified(_ typeSyntax: TypeSyntax) -> DeclChain? {
     switch typeSyntax {
     case let ts as SimpleTypeIdentifierSyntax:
       return lookupQualified(ts.name)
@@ -64,36 +64,36 @@ extension DeclContext {
     }
   }
 
-  /// Looks up `name` in the declarations in `declarationChain`, from last to
+  /// Looks up `name` in the declarations in `decls`, from last to
   /// first.
   ///
   /// - Parameter name: The name of the declaration to look up.
   /// - Returns: The first child declaration of `last` to match `typeSyntax`, or
   ///            `nil` if none were found.
-  func lookupUnqualified(_ name: String) -> DeclContext? {
+  func lookupUnqualified(_ name: String) -> DeclChain? {
     guard !isEmpty else { return nil }
     return lookupQualified(name) ?? removingLast().lookupUnqualified(name)
   }
 
-  /// Looks up `identifier` in the declarations in `declarationChain`, from last
+  /// Looks up `identifier` in the declarations in `decls`, from last
   /// to first.
   ///
   /// - Parameter identifier: A token containing the name of the declaration to
   ///             look up.
   /// - Returns: The first child declaration of `last` to match `identifier`, or
   ///            `nil` if none were found.
-  func lookupUnqualified(_ identifier: TokenSyntax) -> DeclContext? {
+  func lookupUnqualified(_ identifier: TokenSyntax) -> DeclChain? {
     return lookupUnqualified(identifier.text)
   }
 
-  /// Looks up `typeSyntax` in the declarations in `declarationChain`, from last
+  /// Looks up `typeSyntax` in the declarations in `decls`, from last
   /// to first.
   ///
   /// - Parameter typeSyntax: A `TypeSyntax` instance identifying a type to look
   ///              up. This may be a `MemberTypeIdentifierSyntax`.
   /// - Returns: The first child declaration of `last` to match `identifier`, or
   ///            `nil` if none were found.
-  func lookupUnqualified(_ typeSyntax: TypeSyntax) -> DeclContext? {
+  func lookupUnqualified(_ typeSyntax: TypeSyntax) -> DeclChain? {
     switch typeSyntax {
     case let ts as SimpleTypeIdentifierSyntax:
       return lookupUnqualified(ts.name)
@@ -152,18 +152,20 @@ extension EnumCaseDeclSyntax: ValueDecl {
 
 // MARK: Defining which decls have child decls, and how to locate them.
 
-// FIXME: Should be called DeclContext.
-protocol _DeclContext {
+/// A source entity which acts as a namespace for declarations. A direct name
+/// lookup in one DeclContext will never find a DeclValue in a different
+/// DeclContext, except for extensions.
+protocol DeclContext {
   /// Looks for a child of `self` with the name `name`.
   func lookupDirect(_ name: String) -> ValueDecl?
 }
 
-extension _DeclContext where Self: DeclWithMembers {
+extension DeclContext where Self: DeclWithMembers {
   func lookupDirect(_ name: String) -> ValueDecl? {
     // Check all of this type's member lists to see if any of them have the
     // declaration.
     for context in ExtensionFinder(of: self).found {
-      // Search all nodes under the decl, ignoring nodes under _DeclContexts.
+      // Search all nodes under the decl, ignoring nodes under DeclContexts.
       if let decl = ValueDeclFinder(name, in: context).found.first {
         return decl
       }
@@ -174,32 +176,32 @@ extension _DeclContext where Self: DeclWithMembers {
 }
 
 // FIXME: Do we really want this?
-extension _DeclContext where Self: AbstractFunctionDecl {
+extension DeclContext where Self: AbstractFunctionDecl {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return ValueDeclFinder(name, in: self).found.first
   }
 }
 
 // FIXME: Do we really want this?
-extension VariableDeclSyntax: _DeclContext {
+extension VariableDeclSyntax: DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return nil
   }
 }
 
 private func lookupDirectUnimplemented(parent: Decl, name: String) -> ValueDecl? {
-  let parentName = DeclContext(at: parent).name
+  let parentName = DeclChain(at: parent).name
   log(type: .error, #"Not implemented: \#(type(of: parent)).lookupDirect("\#(name)") called on \#(parentName)"#)
   return nil
 }
 
-extension TypealiasDeclSyntax: _DeclContext {
+extension TypealiasDeclSyntax: DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return lookupDirectUnimplemented(parent: self, name: name)
   }
 }
 
-extension AssociatedtypeDeclSyntax: _DeclContext {
+extension AssociatedtypeDeclSyntax: DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return lookupDirectUnimplemented(parent: self, name: name)
   }
@@ -211,7 +213,7 @@ extension SubscriptDeclSyntax {
   }
 }
 
-extension SourceFileSyntax: _DeclContext {
+extension SourceFileSyntax: DeclContext {
   func lookupDirect(_ name: String) -> ValueDecl? {
     return ValueDeclFinder(name, in: self).found.first
   }
@@ -219,13 +221,13 @@ extension SourceFileSyntax: _DeclContext {
 
 // MARK: Extension handling
 
-/// A visitor which finds a ValueDecl child of a _DeclContext with a given name.
+/// A visitor which finds a ValueDecl child of a DeclContext with a given name.
 fileprivate class ValueDeclFinder: SyntaxVisitor {
   private let name: String
-  let parent: _DeclContext & Syntax
+  let parent: DeclContext & Syntax
   var found: [ValueDecl] = []
 
-  init(_ name: String, in parent: _DeclContext & Syntax) {
+  init(_ name: String, in parent: DeclContext & Syntax) {
     self.parent = parent
     self.name = name
 
@@ -238,7 +240,7 @@ fileprivate class ValueDeclFinder: SyntaxVisitor {
     if let decl = node as? ValueDecl, decl.matches(name) {
       found.append(decl)
     }
-    if node is _DeclContext && node != parent {
+    if node is DeclContext && node != parent {
       // We shouldn't look in here; it's a different namespace.
       return .skipChildren
     }
@@ -330,15 +332,15 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
   private let lookingFor: String
 
   /// The result list. Includes the original decl and all found extensions.
-  fileprivate var found: [_DeclContext & Syntax]
+  fileprivate var found: [DeclContext & Syntax]
 
   /// The context of the decl we're currently visiting.
-  private var current: DeclContext
+  private var current: DeclChain
 
   fileprivate init(of node: Syntax) {
-    current = DeclContext(declarationChain: [])
+    current = DeclChain(decls: [])
 
-    guard let target = DeclContext(at: node).extendedDeclContext else {
+    guard let target = DeclChain(at: node).extendedDeclChain else {
       lookingFor = current.extendedTypeName
       found = []
 
@@ -348,11 +350,11 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
     }
 
     lookingFor = target.extendedTypeName
-    found = [target.last as! _DeclContext & Syntax]
+    found = [target.last as! DeclContext & Syntax]
 
     super.init()
 
-    target.rootContext?.last?.walk(self)
+    target.fileChain?.last?.walk(self)
   }
 
   override func visitPre(_ node: Syntax) {

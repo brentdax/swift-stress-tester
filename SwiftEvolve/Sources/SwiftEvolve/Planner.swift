@@ -47,7 +47,7 @@ public class Planner<G: RandomNumberGenerator>: SyntaxAnyVisitor {
   //     must be applied together for any of them to be valid.
   //   - Middle: Set of alternative evolution plans; we will choose one of its
   //     elements to apply.
-  //   - Outer: Stack corresponding to context.declContext; we push an empty
+  //   - Outer: Stack corresponding to context.declChain; we push an empty
   //     set of alternative plans when we enter a decl, and we pop a set and
   //     choose one of the alternatives when we exit it.
   var potentialEvolutionsStack: [[[PlannedEvolution]]] = []
@@ -92,7 +92,7 @@ public class Planner<G: RandomNumberGenerator>: SyntaxAnyVisitor {
     _ evolution: Evolution, of node: Syntax
   ) -> PlannedEvolution {
     return PlannedEvolution(
-      sourceLocation: "\(context.declContext.name) \(makeLocationString(for: node))",
+      sourceLocation: "\(context.declChain.name) \(makeLocationString(for: node))",
       file: url,
       syntaxPath: context.syntaxPath,
       evolution: AnyEvolution(evolution)
@@ -103,7 +103,7 @@ public class Planner<G: RandomNumberGenerator>: SyntaxAnyVisitor {
     do {
       potentialEvolutionsStack[potentialEvolutionsStack.endIndex - 1] +=
         try rules.makeAll(
-          for: node, in: context.declContext, using: &rng
+          for: node, in: context.declChain, using: &rng
         ).map { $0.map { makePlannedEvolution($0, of: node) } }
     }
     catch {

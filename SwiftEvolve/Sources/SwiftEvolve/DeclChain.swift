@@ -17,33 +17,33 @@
 
 import SwiftSyntax
 
-struct DeclContext {
+struct DeclChain {
   private(set) var name: String
 
-  var declarationChain: [Decl] = [] {
-    didSet { name = makeName(from: declarationChain) }
+  var decls: [Decl] = [] {
+    didSet { name = makeName(from: decls) }
   }
 
-  init(declarationChain: [Decl] = []) {
-    self.declarationChain = declarationChain
-    name = makeName(from: declarationChain)
+  init(decls: [Decl] = []) {
+    self.decls = decls
+    name = makeName(from: decls)
   }
 
   /// - Complexity: O(N)
   init(at node: Syntax) {
-    self.init(declarationChain: reconstructDeclarationChain(at: node))
+    self.init(decls: reconstructDeclarationChain(at: node))
   }
 
-  var rootContext: DeclContext? {
-    return declarationChain.first.map { DeclContext(declarationChain: [$0]) }
+  var fileChain: DeclChain? {
+    return decls.first.map { DeclChain(decls: [$0]) }
   }
 
   /// If `last` is an extension, returns the `Decl` for the extended type;
   /// otherwise returns `last`.
-  var extendedDeclContext: DeclContext? {
+  var extendedDeclChain: DeclChain? {
     switch last! {
     case let ext as ExtensionDeclSyntax:
-      if let extendedDC = rootContext?.lookupQualified(ext.extendedType) {
+      if let extendedDC = fileChain?.lookupQualified(ext.extendedType) {
         return extendedDC
       }
       return nil
@@ -56,13 +56,13 @@ struct DeclContext {
   /// If `last` is an extension, returns the `Decl` for the extended type;
   /// otherwise returns `last`.
   var extendedDecl: Decl? {
-    return extendedDeclContext?.last
+    return extendedDeclChain?.last
   }
 
   /// Returns the name of the declaration as if it were defined directly in the
   /// base type, even if it's actually within an extension.
   var extendedTypeName: String {
-    return declarationChain.flatMap { decl -> String in
+    return decls.map { decl -> String in
       if let ext = decl as? ExtensionDeclSyntax {
         return ext.extendedType.typeText
       }
@@ -73,7 +73,7 @@ struct DeclContext {
   }
 }
 
-extension DeclContext: CustomStringConvertible {
+extension DeclChain: CustomStringConvertible {
   var description: String {
     return name
   }
@@ -156,34 +156,34 @@ extension DeclContext: CustomStringConvertible {
   }
 }
 
-extension DeclContext {
+extension DeclChain {
   func `is`(at node: Syntax) -> Bool {
     return !isEmpty && last! == node
   }
 
   var last: Decl? {
-    return declarationChain.last
+    return decls.last
   }
 
   var isEmpty: Bool {
-    return declarationChain.isEmpty
+    return decls.isEmpty
   }
 
   mutating func append(_ node: Decl) {
-    declarationChain.append(node)
+    decls.append(node)
   }
 
-  func appending(_ node: Decl) -> DeclContext {
+  func appending(_ node: Decl) -> DeclChain {
     var copy = self
     copy.append(node)
     return copy
   }
 
   mutating func removeLast() {
-    declarationChain.removeLast()
+    decls.removeLast()
   }
   
-  func removingLast() -> DeclContext {
+  func removingLast() -> DeclChain {
     var copy = self
     copy.removeLast()
     return copy
@@ -490,8 +490,8 @@ extension Optional where Wrapped == ModifierListSyntax {
   }
 }
 
-private func makeName(from declarationChain: [Decl]) -> String {
-  return declarationChain.map { $0.name }.joined(separator: ".")
+private func makeName(from decls: [Decl]) -> String {
+  return decls.map { $0.name }.joined(separator: ".")
 }
 
 func reconstructDeclarationChain(at node: Syntax) -> [Decl] {
