@@ -395,9 +395,18 @@ extension ShuffleGenericRequirementsEvolution {
 enum MemberKind: String, CaseIterable, Codable {
   case function, variable, subscription, initializer
 
-  func mustBeConvenience(for dc: DeclChain) -> Bool {
-    guard self == .initializer else { return false }
-    return dc.extendedDecl is ClassDeclSyntax
+  mutating func mustBeConvenience(for dc: DeclChain) -> Bool {
+    guard self == .initializer else {
+      return false
+    }
+    guard let base = dc.extendedDecl else {
+      // HACK: If we can't find the decl, we don't know whether we need the
+      // keyword or not. Change it to a different decl.
+      log(type: .error, "can't find base decl for \(dc); '''fixing''' the member we might generate")
+      self = .subscription
+      return false
+    }
+    return base is ClassDeclSyntax
   }
 
   func makeDeclSyntax(
@@ -644,7 +653,8 @@ extension InsertComputedUnnamedMemberEvolution {
       let members = (node as? MemberDeclListSyntax).map(Array.init(_:))
     else { throw EvolutionError.unsupported }
 
-    let kind = [MemberKind.initializer, .subscription].randomElement(using: &rng)!
+    var kind = [MemberKind.initializer, .subscription].randomElement(using: &rng)!
+    let isConvenience = kind.mustBeConvenience(for: decl)
     let randomPart = rng.next(upperBound: UInt.max)
 
     let arity = Int.random(in: 0..<10, using: &rng)
@@ -660,7 +670,7 @@ extension InsertComputedUnnamedMemberEvolution {
       memberKind: kind,
       accessLevel: AccessLevel.allCases(for: decl)
         .randomElement(using: &rng)!,
-      isConvenience: kind.mustBeConvenience(for: decl)
+      isConvenience: isConvenience
     )
   }
 
