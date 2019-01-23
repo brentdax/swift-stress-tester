@@ -135,6 +135,22 @@ struct ShuffleMembersEvolution: Evolution {
 
 /// An evolution which makes an implicit struct initializer explicit.
 struct SynthesizeMemberwiseInitializerEvolution: Evolution {
+  struct Init: Codable {
+    var accessLevel = AccessLevel.internal
+    var properties: [StoredProperty] = []
+
+    mutating func reduceAccessLevel(to other: AccessLevel, fromOtherScope: Bool) {
+      if accessLevel > other {
+        if fromOtherScope && other == .private {
+          accessLevel = .fileprivate
+        }
+        else {
+          accessLevel = other
+        }
+      }
+    }
+  }
+
   struct StoredProperty: Codable, CustomStringConvertible {
     var name: String
     var type: String
@@ -143,8 +159,8 @@ struct SynthesizeMemberwiseInitializerEvolution: Evolution {
       return "\(name): \(type)"
     }
   }
-  
-  var inits: [[StoredProperty]]
+
+  var inits: [Init]
   
   var kind: AnyEvolution.Kind { return .synthesizeMemberwiseInitializer }
 }
@@ -241,10 +257,13 @@ extension SynthesizeMemberwiseInitializerEvolution {
       return nil
     }
 
-    var hasDefault = true
-    var hasMemberwise = true
-    var hasConditionalStoredProperties = false
-    var properties: [StoredProperty] = []
+    var defaultInit: Init? = Init()
+    var memberwiseInit: Init? = Init()
+
+    if let typeAccessLevel = decl.last?.formalAccessLevel {
+      defaultInit!.reduceAccessLevel(to: typeAccessLevel, fromOtherScope: true)
+      memberwiseInit!.reduceAccessLevel(to: typeAccessLevel, fromOtherScope: true)
+    }
 
     for membersItem in members {
       switch membersItem.decl {
@@ -252,7 +271,7 @@ extension SynthesizeMemberwiseInitializerEvolution {
         if ifConfig.containsStoredMembers {
           // We would need to generate separate inits for each version. Maybe
           // someday, but not today.
-          hasConditionalStoredProperties = true
+          throw EvolutionError.unsupported
         }
 
       case is InitializerDeclSyntax:
@@ -263,6 +282,8 @@ extension SynthesizeMemberwiseInitializerEvolution {
 
       case let member as VariableDeclSyntax where member.isStored:
         // We definitely care about stored properties.
+        memberwiseInit?.reduceAccessLevel(to: member.formalAccessLevel, fromOtherScope: false)
+
         for prop in member.boundProperties {
           if let type = prop.type {
             var typeName = type.typeText
@@ -270,16 +291,15 @@ extension SynthesizeMemberwiseInitializerEvolution {
               typeName = "@escaping \(typeName)"
             }
 
-            properties.append(StoredProperty(
-              name: prop.name.text,
-              type: typeName
-            ))
+            memberwiseInit?.properties.append(
+              StoredProperty(name: prop.name.text, type: typeName)
+            )
           } else {
-            hasMemberwise = false
+            memberwiseInit = nil
           }
 
           if !prop.isInitialized {
-            hasDefault = false
+            defaultInit = nil
           }
         }
 
@@ -294,18 +314,12 @@ extension SynthesizeMemberwiseInitializerEvolution {
       }
     }
 
-    if hasConditionalStoredProperties {
-      throw EvolutionError.unsupported
+    if memberwiseInit?.properties.isEmpty ?? false {
+      // We don't need both.
+      memberwiseInit = nil
     }
-    
-    var inits: [[StoredProperty]] = []
-    if hasDefault {
-      inits.append([])
-    }
-    if hasMemberwise && !properties.isEmpty {
-      inits.append(properties)
-    }
-    
+
+    let inits = [defaultInit, memberwiseInit].compactMap { $0 }
     if inits.isEmpty {
       return nil
     }
@@ -316,8 +330,8 @@ extension SynthesizeMemberwiseInitializerEvolution {
   func evolve(_ node: Syntax) -> Syntax {
     let members = node as! MemberDeclListSyntax
     
-    return inits.reduce(members) { members, properties in
-      let parameters = properties.mapToFunctionParameterClause {
+    return inits.reduce(members) { members, anInit in
+      let parameters = anInit.properties.mapToFunctionParameterClause {
         SyntaxFactory.makeFunctionParameter(
           attributes: nil,
           firstName: SyntaxFactory.makeIdentifier($0.name),
@@ -330,7 +344,7 @@ extension SynthesizeMemberwiseInitializerEvolution {
         )
       }
       
-      let body = properties.mapToCodeBlock { prop in
+      let body = anInit.properties.mapToCodeBlock { prop in
         ExprSyntaxTemplate.makeExpr(withVars: "self", prop.name) {
           _self, arg in _self[dot: prop.name] ^= arg
         }
@@ -338,15 +352,21 @@ extension SynthesizeMemberwiseInitializerEvolution {
       
       let newInitializer = SyntaxFactory.makeInitializerDecl(
         attributes: nil,
-        modifiers: nil,
-        initKeyword: SyntaxFactory.makeInitKeyword(
-          leadingTrivia: [
-            .newlines(2),
-            .lineComment("// Synthesized by SynthesizeMemberwiseInitializerEvolution"),
-            .newlines(1)
-          ],
-          trailingTrivia: []
-        ),
+        modifiers: SyntaxFactory.makeModifierList([
+          SyntaxFactory.makeDeclModifier(
+            name: anInit.accessLevel.makeToken()
+              .withLeadingTrivia([
+                .newlines(2),
+                .lineComment("// Synthesized by SynthesizeMemberwiseInitializerEvolution"),
+                .newlines(1)
+              ])
+              .withTrailingTrivia([.spaces(1)]),
+            detailLeftParen: nil,
+            detail: nil,
+            detailRightParen: nil
+          )
+        ]),
+        initKeyword: SyntaxFactory.makeInitKeyword(),
         optionalMark: nil,
         genericParameterClause: nil,
         parameters: parameters,
