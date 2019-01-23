@@ -171,7 +171,7 @@ struct ShuffleGenericRequirementsEvolution: Evolution {
   var kind: AnyEvolution.Kind { return .shuffleGenericRequirements }
 }
 
-// An evolution which adds a computed func or var to a concrete type.
+/// An evolution which adds a func or computed var to a concrete type.
 struct InsertComputedMemberEvolution: Evolution {
   var index: Int
   var name: String
@@ -183,7 +183,7 @@ struct InsertComputedMemberEvolution: Evolution {
   var kind: AnyEvolution.Kind { return .insertComputedMember }
 }
 
-// An evolution which adds a computed init or  to a concrete type.
+/// An evolution which adds a (convenience) init or subscript to a concrete type.
 struct InsertComputedUnnamedMemberEvolution: Evolution {
   var index: Int
   var name: String
@@ -259,6 +259,7 @@ extension SynthesizeMemberwiseInitializerEvolution {
 
     var defaultInit: Init? = Init()
     var memberwiseInit: Init? = Init()
+    var hasStoredMembersInIfConfig = false
 
     if let typeAccessLevel = decl.last?.formalAccessLevel {
       defaultInit!.reduceAccessLevel(to: typeAccessLevel, fromOtherScope: true)
@@ -271,7 +272,9 @@ extension SynthesizeMemberwiseInitializerEvolution {
         if ifConfig.containsStoredMembers {
           // We would need to generate separate inits for each version. Maybe
           // someday, but not today.
-          throw EvolutionError.unsupported
+          // We don't throw immediately so we can return nil if we find an
+          // explicit init.
+          hasStoredMembersInIfConfig = true
         }
 
       case is InitializerDeclSyntax:
@@ -312,6 +315,10 @@ extension SynthesizeMemberwiseInitializerEvolution {
         // If not, then we don't care.
         continue
       }
+    }
+
+    if hasStoredMembersInIfConfig {
+      throw EvolutionError.unsupported
     }
 
     if memberwiseInit?.properties.isEmpty ?? false {
@@ -696,7 +703,7 @@ extension InsertComputedUnnamedMemberEvolution {
 
   func makePrerequisites<G>(
     for node: Syntax, in decl: DeclChain, using rng: inout G
-    ) throws -> [Evolution] where G : RandomNumberGenerator {
+  ) throws -> [Evolution] where G : RandomNumberGenerator {
     guard memberKind == .initializer else {
       return []
     }

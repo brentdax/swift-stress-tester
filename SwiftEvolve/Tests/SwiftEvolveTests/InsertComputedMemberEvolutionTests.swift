@@ -214,14 +214,26 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
     )
     let dcs = code.filter(whereIs: DeclSyntax.self).map(DeclChain.init(at:))
 
-    // 0 is the SourceFileSyntax.
-    XCTAssertFalse(MemberKind.initializer.mustBeConvenience(for: dcs[0]))
+    var memberKind = MemberKind.initializer
 
-    XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[1]))
-    XCTAssertFalse(MemberKind.initializer.mustBeConvenience(for: dcs[2]))
-    XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[3]))
-    XCTAssertFalse(MemberKind.initializer.mustBeConvenience(for: dcs[4]))
-    XCTAssertTrue(MemberKind.initializer.mustBeConvenience(for: dcs[5]))
+    // 0 is the SourceFileSyntax.
+    XCTAssertFalse(memberKind.mustBeConvenience(for: dcs[0]))
+    XCTAssertEqual(memberKind, .initializer)
+
+    XCTAssertTrue(memberKind.mustBeConvenience(for: dcs[1]))
+    XCTAssertEqual(memberKind, .initializer)
+
+    XCTAssertFalse(memberKind.mustBeConvenience(for: dcs[2]))
+    XCTAssertEqual(memberKind, .initializer)
+
+    XCTAssertTrue(memberKind.mustBeConvenience(for: dcs[3]))
+    XCTAssertEqual(memberKind, .initializer)
+
+    XCTAssertFalse(memberKind.mustBeConvenience(for: dcs[4]))
+    XCTAssertEqual(memberKind, .initializer)
+
+    XCTAssertTrue(memberKind.mustBeConvenience(for: dcs[5]))
+    XCTAssertEqual(memberKind, .initializer)
   }
 
 //  func testMustBeConvenienceRegression() throws {
