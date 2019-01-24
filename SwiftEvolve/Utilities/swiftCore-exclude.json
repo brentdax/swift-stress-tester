@@ -19,5 +19,26 @@
     "(file).(extension Optional)",
     "(file).(extension Equatable)",
     "(file).(extension Hashable)"
+  ],
+  "insertStoredProperty": [
+    "(file).(extension __CocoaSet).Iterator",
+    "(file)._SwiftDeferredNSSet",
+    "(file).(extension __CocoaDictionary).Iterator",
+    "(file)._SwiftDeferredNSDictionary",
+    "(file).ReferenceWritableKeyPath",
+    "(file).RawKeyPathComponent",
+    "(file).RawKeyPathComponent.Header",
+    "(file).KeyPathBuffer",
+    "(file).KeyPathBuffer.Header",
+    "(file).ComputedArgumentWitnesses",
+    "(file).ComputedPropertyID",
+    "(file).PartialKeyPath",
+    "(file).KeyPath",
+    "(file).WritableKeyPath",
+    "(file).__SwiftNativeNSString",
+    "(file).__StringStorage",
+    "(file).__BridgingBufferStorage",
+    "(file).__BridgingHashBuffer",
+    "(file)._RuntimeFunctionCountersState"
   ]
 }

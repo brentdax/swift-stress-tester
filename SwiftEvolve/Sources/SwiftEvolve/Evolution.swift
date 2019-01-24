@@ -107,6 +107,7 @@ extension AnyEvolution {
     case shuffleGenericRequirements
     case insertComputedMember
     case insertComputedUnnamedMember
+    case insertStoredProperty
 
     var type: Evolution.Type {
       switch self {
@@ -120,6 +121,8 @@ extension AnyEvolution {
         return InsertComputedMemberEvolution.self
       case .insertComputedUnnamedMember:
         return InsertComputedUnnamedMemberEvolution.self
+      case .insertStoredProperty:
+        return InsertStoredPropertyEvolution.self
       }
     }
   }
@@ -193,6 +196,15 @@ struct InsertComputedUnnamedMemberEvolution: Evolution {
   var isConvenience: Bool
 
   var kind: AnyEvolution.Kind { return .insertComputedUnnamedMember }
+}
+
+// An evolution which adds a stored property to a concrete type.
+struct InsertStoredPropertyEvolution: Evolution {
+  var index: Int
+  var name: String
+  var accessLevel: AccessLevel
+
+  var kind: AnyEvolution.Kind { return .insertStoredProperty }
 }
 
 // MARK: Implementations
@@ -439,8 +451,9 @@ enum MemberKind: String, CaseIterable, Codable {
   func makeDeclSyntax(
     modifiers: ModifierListSyntax,
     name: TokenSyntax,
-    parameterLabels: [TokenSyntax],
-    body: CodeBlockSyntax
+    parameterLabels: [TokenSyntax] = [],
+    body: CodeBlockSyntax? = nil,
+    initializer: InitializerClauseSyntax? = nil
   ) -> Decl {
     let parameters = parameterLabels.mapToFunctionParameterClause {
       SyntaxFactory.makeFunctionParameter(
@@ -470,7 +483,7 @@ enum MemberKind: String, CaseIterable, Codable {
               colon: SyntaxFactory.makeColonToken(trailingTrivia: [.spaces(1)]),
               type: SyntaxFactory.makeAnyTypeIdentifier()
             ),
-            initializer: nil,
+            initializer: initializer,
             accessor: body,
             trailingComma: nil
           )
@@ -478,6 +491,8 @@ enum MemberKind: String, CaseIterable, Codable {
       )
 
     case .function:
+      assert(initializer == nil)
+
       return SyntaxFactory.makeFunctionDecl(
         attributes: nil,
         modifiers: modifiers,
@@ -499,6 +514,8 @@ enum MemberKind: String, CaseIterable, Codable {
       )
 
     case .initializer:
+      assert(initializer == nil)
+
       return SyntaxFactory.makeInitializerDecl(
         attributes: nil,
         modifiers: modifiers,
@@ -512,6 +529,8 @@ enum MemberKind: String, CaseIterable, Codable {
       )
 
     case .subscription:
+      assert(initializer == nil)
+
       return SyntaxFactory.makeSubscriptDecl(
         attributes: nil,
         modifiers: modifiers,
@@ -764,6 +783,80 @@ extension InsertComputedUnnamedMemberEvolution {
         ).prependingTrivia([
           .newlines(2),
           .lineComment("// Synthesized by InsertComputedUnnamedMemberEvolution"),
+          .newlines(1)
+          ]),
+      at: index
+    )
+
+    return SyntaxFactory.makeMemberDeclList(membersCopy)
+  }
+}
+
+extension InsertStoredPropertyEvolution {
+  init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
+    where G: RandomNumberGenerator
+  {
+    guard
+      let members = (node as? MemberDeclListSyntax).map(Array.init(_:)),
+      !(decl.last is ProtocolDeclSyntax),
+      !(decl.last is EnumDeclSyntax),
+      !(decl.last is ExtensionDeclSyntax),
+      decl.isResilient
+    else { throw EvolutionError.unsupported }
+
+    let randomPart = rng.next(upperBound: UInt.max)
+
+    self.init(
+      index: Int.random(
+        in: members.startIndex ... members.endIndex,
+        using: &rng
+      ),
+      name: "__swiftEvolveInserted\(randomPart)",
+      accessLevel: AccessLevel.allCases(for: decl)
+        .randomElement(using: &rng)!
+    )
+  }
+
+  func makePrerequisites<G>(
+    for node: Syntax, in decl: DeclChain, using rng: inout G
+  ) throws -> [Evolution] where G : RandomNumberGenerator {
+    // Synthesize a memberwise init with the old names.
+    return [
+      try SynthesizeMemberwiseInitializerEvolution
+        .makeWithPrerequisites(for: node, in: decl, using: &rng)
+    ].compactMap { $0 }.flatMap { $0 }
+  }
+
+  func evolve(_ node: Syntax) -> Syntax {
+    let members = node as! MemberDeclListSyntax
+
+    let modifiers = SyntaxFactory.makeModifierList([
+      SyntaxFactory.makeDeclModifier(
+        name: accessLevel.makeToken().withTrailingTrivia([.spaces(1)]),
+        detailLeftParen: nil,
+        detail: nil,
+        detailRightParen: nil
+      )
+    ])
+
+    let newMember = MemberKind.variable.makeDeclSyntax(
+      modifiers: modifiers,
+      name: SyntaxFactory.makeIdentifier(name),
+      initializer: SyntaxFactory.makeInitializerClause(
+        equal: SyntaxFactory.makeEqualToken(),
+        value: SyntaxFactory.makeStringLiteralExpr(
+          "Synthesized by InsertStoredPropertyEvolution"
+        )
+      )
+    )
+
+    var membersCopy = Array(members)
+    membersCopy.insert(
+      SyntaxFactory.makeMemberDeclListItem(
+        decl: newMember, semicolon: nil
+        ).prependingTrivia([
+          .newlines(2),
+          .lineComment("// Synthesized by InsertStoredPropertyEvolution"),
           .newlines(1)
           ]),
       at: index
