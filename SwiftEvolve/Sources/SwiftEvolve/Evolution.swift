@@ -104,6 +104,7 @@ extension AnyEvolution {
   enum Kind: String, Codable, CaseIterable {
     case shuffleMembers
     case synthesizeMemberwiseInitializer
+    case synthesizeImplicitIntegerRawValues
     case shuffleGenericRequirements
     case insertComputedMember
     case insertComputedUnnamedMember
@@ -115,6 +116,8 @@ extension AnyEvolution {
         return ShuffleMembersEvolution.self
       case .synthesizeMemberwiseInitializer:
         return SynthesizeMemberwiseInitializerEvolution.self
+      case .synthesizeImplicitIntegerRawValues:
+        return SynthesizeImplicitIntegerRawValuesEvolution.self
       case .shuffleGenericRequirements:
         return ShuffleGenericRequirementsEvolution.self
       case .insertComputedMember:
@@ -166,6 +169,14 @@ struct SynthesizeMemberwiseInitializerEvolution: Evolution, Hashable {
   var inits: [Init]
   
   var kind: AnyEvolution.Kind { return .synthesizeMemberwiseInitializer }
+}
+
+/// An evolution which assigns explicit integer raw values to each case in an
+/// enum.
+struct SynthesizeImplicitIntegerRawValuesEvolution: Evolution, Hashable {
+  var rawValuesByCaseName: [String: Int]
+
+  var kind: AnyEvolution.Kind { return .synthesizeImplicitIntegerRawValues }
 }
 
 /// An evolution which shuffles the constraints in a generic where clause.
@@ -240,7 +251,9 @@ extension ShuffleMembersEvolution {
   ) throws -> [Evolution] where G : RandomNumberGenerator {
     return [
       try SynthesizeMemberwiseInitializerEvolution
-        .makeWithPrerequisites(for: node, in: decl, using: &rng)
+        .makeWithPrerequisites(for: node, in: decl, using: &rng),
+      try SynthesizeImplicitIntegerRawValuesEvolution
+        .makeWithPrerequisites(for: node, in: decl, using: &rng),
     ].compactMap { $0 }.flatMap { $0 }
   }
 
@@ -402,6 +415,155 @@ extension SynthesizeMemberwiseInitializerEvolution {
         $0.useDecl(newInitializer)
       })
     }
+  }
+}
+
+let knownIntTypeNames = ["", "8", "16", "32", "64"]
+                          .map { "Int\($0)" }
+                          .flatMap { [$0, "U\($0)"] }
+                          .flatMap { [$0, "Swift.\($0)"] }
+
+extension TokenSyntax {
+  var integerValue: Int? {
+    guard case .integerLiteral = tokenKind else {
+      return nil
+    }
+
+    var rest = text[...]
+    let isNegative = text.hasPrefix("-")
+    if isNegative { rest.removeFirst() }
+
+    let radix: Int
+    if      rest.hasPrefix("0x") { radix = 16 }
+    else if rest.hasPrefix("0o") { radix = 8  }
+    else if rest.hasPrefix("0b") { radix = 2  }
+    else                         { radix = 10 }
+
+    if radix != 10 { rest.removeFirst(2) }
+
+    let digitsAndSign = (isNegative ? "-" : "") + rest
+    return Int(digitsAndSign, radix: radix)
+  }
+}
+
+extension SynthesizeImplicitIntegerRawValuesEvolution {
+  private struct RawValueInferer: SyntaxVisitor {
+    private var previousRawValue = -1
+    private var sawUnsupported = false
+    var inferredRawValues: [String: Int] = [:]
+
+    init(_ members: MemberDeclListSyntax) throws {
+      members.walk(&self)
+      if sawUnsupported {
+        throw EvolutionError.unsupported
+      }
+    }
+
+    mutating func interpretOrInferRawValue(of elem: EnumCaseElementSyntax) {
+      // Does it have a raw value?
+      guard let rawValueInitializer = elem.rawValue else {
+        // No? We need to assign the next one to it.
+        previousRawValue += 1
+        inferredRawValues[elem.identifier.text] = previousRawValue
+        return
+      }
+
+      // Is it assigned an integer literal?
+      guard
+        let rawValueExpr = rawValueInitializer.value as? IntegerLiteralExprSyntax,
+        let rawValue = rawValueExpr.digits.integerValue
+        else {
+          // No? We can't handle this code.
+          sawUnsupported = true
+          return
+      }
+
+      // Update the previous raw value so we assign subsequent ones based on
+      // this.
+      previousRawValue = rawValue
+    }
+
+    mutating func visit(_ elem: EnumCaseElementSyntax) -> SyntaxVisitorContinueKind {
+      interpretOrInferRawValue(of: elem)
+
+      // There can't be another case nested inside this one.
+      return .skipChildren
+    }
+
+    func visit(_ node: MemberDeclBlockSyntax) -> SyntaxVisitorContinueKind {
+      // Don't walk into this--we might encounter cases for a nested enum.
+      return .skipChildren
+    }
+
+    func visit(_ node: CodeBlockSyntax) -> SyntaxVisitorContinueKind {
+      // No point entering this.
+      return .skipChildren
+    }
+  }
+
+  private class RawValueRewriter: SyntaxRewriter {
+    var rawValuesByCaseName: [String: Int]
+
+    init(rawValuesByCaseName: [String: Int]) {
+      self.rawValuesByCaseName = rawValuesByCaseName
+    }
+
+    override func visit(_ node: EnumCaseElementSyntax) -> Syntax {
+      guard let newRawValue = rawValuesByCaseName[node.identifier.text] else {
+        return node
+      }
+      return node.withRawValue(
+        SyntaxFactory.makeInitializerClause(
+          equal: SyntaxFactory.makeEqualToken(
+            leadingTrivia: [.spaces(1)], trailingTrivia: [.spaces(1)]
+          ),
+          value: SyntaxFactory.makeIntegerLiteralExpr(
+            digits: SyntaxFactory.makeIntegerLiteral(String(newRawValue))
+          )
+        )
+      )
+    }
+
+    override func visit(_ node: MemberDeclBlockSyntax) -> Syntax {
+      // Don't walk into this--we might encounter cases for a nested enum.
+      return node
+    }
+
+    override func visit(_ node: CodeBlockSyntax) -> Syntax {
+      // No point entering this.
+      return node
+    }
+  }
+
+  init?<G>(
+    for node: Syntax, in decl: DeclChain, using rng: inout G
+  ) throws where G : RandomNumberGenerator {
+    guard let members = node as? MemberDeclListSyntax else {
+      throw EvolutionError.unsupported
+    }
+    guard
+      let enumDecl = decl.last as? EnumDeclSyntax,
+      let possibleRawType = enumDecl.inheritanceClause?.inheritedTypeCollection
+                              .first?.typeName.typeText,
+      // Bit of a lousy heuristic, but it'll do.
+      knownIntTypeNames.contains(possibleRawType)
+    else {
+      return nil
+    }
+
+    let newRawValues = try RawValueInferer(members).inferredRawValues
+    if newRawValues.isEmpty {
+      return nil
+    }
+
+    self.init(rawValuesByCaseName: newRawValues)
+  }
+
+  func evolve(_ node: Syntax) -> Syntax {
+    let members = node as! MemberDeclListSyntax
+
+    return RawValueRewriter(rawValuesByCaseName: rawValuesByCaseName)
+             .visit(members)
   }
 }
 
