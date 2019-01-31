@@ -381,9 +381,9 @@ extension DeclChain {
     }
 
     return types.compactMap { lookupUnqualified($0)?.maximumAccessLevel }.min()
-      // If no resolvable types are involved, assume they are imported or
-      // otherwise unrestricted.
-      ?? .open
+      // If no resolvable types are involved, we can assume that they at least
+      // come from outside the file, so they are internal or greater.
+      ?? .internal
   }
 }
 
