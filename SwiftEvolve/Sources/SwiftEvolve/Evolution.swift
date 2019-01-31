@@ -312,7 +312,9 @@ extension SynthesizeMemberwiseInitializerEvolution {
               StoredProperty(name: prop.name.text, type: typeName)
             )
           } else {
-            memberwiseInit = nil
+            // If the type is not specified, swift-evolve is not smart enough
+            // to infer it.
+            throw EvolutionError.unsupported
           }
 
           if !prop.isInitialized {
