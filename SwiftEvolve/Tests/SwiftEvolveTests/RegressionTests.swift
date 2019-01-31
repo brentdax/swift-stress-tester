@@ -150,4 +150,41 @@ class RegressionTests: XCTestCase {
       }
     }
   }
+
+  func testStaticVarsNotUsedInMemberwiseInit() throws {
+    // Checks that we don't mess up the order of declarations we're not trying
+    // to shuffle. In particular, if we store the properties in a Set or other
+    // unordered collection, we could screw this up.
+    let code = try SyntaxParser.parse(source:
+      """
+      struct X {
+        var included: Int
+        static var excluded: Int
+      }
+      """
+    )
+    let decl = code.filter(whereIs: StructDeclSyntax.self).first!
+    let dc = DeclChain(decls: [code, decl])
+
+    let evo = try SynthesizeMemberwiseInitializerEvolution(
+      for: decl.members.members, in: dc, using: &unusedRNG
+    )
+
+    XCTAssertEqual(
+      evo,
+      SynthesizeMemberwiseInitializerEvolution(
+        inits: [
+          SynthesizeMemberwiseInitializerEvolution.Init(
+            accessLevel: .internal,
+            properties: [
+              SynthesizeMemberwiseInitializerEvolution.StoredProperty(
+                name: "included",
+                type: "Int"
+              )
+            ]
+          )
+        ]
+      )
+    )
+  }
 }

@@ -40,6 +40,10 @@ extension Decl {
   var formalAccessLevel: AccessLevel {
     return modifiers?.lazy.compactMap { $0.accessLevel }.first ?? .internal
   }
+
+  var staticKeyword: StaticKeyword {
+    return modifiers?.lazy.compactMap { $0.staticKeyword }.first ?? .instance
+  }
 }
 
 extension ValueDecl {
@@ -57,7 +61,7 @@ extension ValueDecl where Self: DeclWithParameters {
   }
 }
 
-enum AccessLevel: String, Codable, Comparable {
+enum AccessLevel: String, Codable, Comparable, Hashable {
   case `private`, `fileprivate`, `internal`, `public`, `open`
 
   private var rank: Int {
@@ -80,9 +84,16 @@ enum AccessLevel: String, Codable, Comparable {
   }
 }
 
+enum StaticKeyword: String, Codable, Hashable {
+  case instance, `static`, `class`
+}
+
 extension DeclModifierSyntax {
   var accessLevel: AccessLevel? {
     return AccessLevel(rawValue: self.name.text)
+  }
+  var staticKeyword: StaticKeyword? {
+    return StaticKeyword(rawValue: self.name.text)
   }
 }
 

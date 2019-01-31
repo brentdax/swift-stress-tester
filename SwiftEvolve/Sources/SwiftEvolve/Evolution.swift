@@ -137,8 +137,8 @@ struct ShuffleMembersEvolution: Evolution {
 }
 
 /// An evolution which makes an implicit struct initializer explicit.
-struct SynthesizeMemberwiseInitializerEvolution: Evolution {
-  struct Init: Codable {
+struct SynthesizeMemberwiseInitializerEvolution: Evolution, Hashable {
+  struct Init: Codable, Hashable {
     var accessLevel = AccessLevel.internal
     var properties: [StoredProperty] = []
 
@@ -154,7 +154,7 @@ struct SynthesizeMemberwiseInitializerEvolution: Evolution {
     }
   }
 
-  struct StoredProperty: Codable, CustomStringConvertible {
+  struct StoredProperty: Codable, CustomStringConvertible, Hashable {
     var name: String
     var type: String
     
@@ -296,7 +296,9 @@ extension SynthesizeMemberwiseInitializerEvolution {
         return nil
 
       case let member as VariableDeclSyntax where member.isStored:
-        // We definitely care about stored properties.
+        // We definitely care about stored properties, unless they're static.
+        guard member.staticKeyword == .instance else { continue }
+
         memberwiseInit?.reduceAccessLevel(to: member.formalAccessLevel, fromOtherScope: false)
 
         for prop in member.boundProperties {
@@ -550,9 +552,7 @@ enum MemberKind: String, CaseIterable, Codable {
   }
 }
 
-enum StaticKeyword: String, Codable {
-  case instance, `static`, `class`
-
+extension StaticKeyword {
   static func allCases(
     for decl: Decl
   ) -> [StaticKeyword] {
