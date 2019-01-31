@@ -157,7 +157,7 @@ class InsertStoredPropertyEvolutionTests: XCTestCase {
           var a: Int
 
         // Synthesized by InsertStoredPropertyEvolution
-        private var __swiftEvolveInserted0: Any="Synthesized by InsertStoredPropertyEvolution"
+        private var __swiftEvolveInserted0: String="Synthesized by InsertStoredPropertyEvolution"
           var b: String
           func x() -> Int { return 0 }
         """)
@@ -178,7 +178,7 @@ class InsertStoredPropertyEvolutionTests: XCTestCase {
           func x() -> Int { return 0 }
 
         // Synthesized by InsertStoredPropertyEvolution
-        internal var __swiftEvolveInserted42: Any="Synthesized by InsertStoredPropertyEvolution"
+        internal var __swiftEvolveInserted42: String="Synthesized by InsertStoredPropertyEvolution"
         """)
     }
   }

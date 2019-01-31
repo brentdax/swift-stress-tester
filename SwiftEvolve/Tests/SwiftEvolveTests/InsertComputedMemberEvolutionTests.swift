@@ -105,7 +105,7 @@ class InsertComputedMemberEvolutionTests: XCTestCase {
         func x() -> Int { return 0 }
 
       // Synthesized by InsertComputedMemberEvolution
-      fileprivate var __swiftEvolveInserted8023441616847907134: Any {
+      fileprivate var __swiftEvolveInserted8023441616847907134: String {
         fatalError("Resilience failure: Called a computed member inserted during later evolution!")
       }
 

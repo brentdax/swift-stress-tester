@@ -481,7 +481,7 @@ enum MemberKind: String, CaseIterable, Codable {
             pattern: SyntaxFactory.makeIdentifierPattern(identifier: name),
             typeAnnotation: SyntaxFactory.makeTypeAnnotation(
               colon: SyntaxFactory.makeColonToken(trailingTrivia: [.spaces(1)]),
-              type: SyntaxFactory.makeAnyTypeIdentifier()
+              type: SyntaxFactory.makeTypeIdentifier("String")
             ),
             initializer: initializer,
             accessor: body,
