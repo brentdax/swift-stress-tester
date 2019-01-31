@@ -203,10 +203,13 @@ extension VariableDeclSyntax {
     var type: TypeSyntax?
     var isInitialized: Bool
 
-    init(boundIdentifier: (name: TokenSyntax, type: TypeSyntax?), isInitialized: Bool) {
+    init(boundIdentifier: (name: TokenSyntax, type: TypeSyntax?), hasInitializer: Bool) {
       self.name = boundIdentifier.name
       self.type = boundIdentifier.type
-      self.isInitialized = isInitialized
+      self.isInitialized = hasInitializer
+                        || boundIdentifier.type is OptionalTypeSyntax
+                        || boundIdentifier.type is
+                                ImplicitlyUnwrappedOptionalTypeSyntax
     }
 
     func write<Target>(to target: inout Target) where Target: TextOutputStream {
@@ -236,7 +239,7 @@ extension VariableDeclSyntax {
             repeatElement($0.initializer != nil, count: .max)
           )
         }
-        .map { BoundProperty(boundIdentifier: $0.0, isInitialized: $0.1) }
+        .map { BoundProperty(boundIdentifier: $0.0, hasInitializer: $0.1) }
     )
   }
 }

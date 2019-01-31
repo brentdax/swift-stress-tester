@@ -109,6 +109,21 @@ class DeclChainTests: XCTestCase {
       }
     }
   }
+
+  func testIsInitialized() throws {
+    let code = try SyntaxParser.parse(source:
+      """
+      var a: Int
+      var b = 1
+      var c: Int?
+      """
+    )
+    let vars = code.filter(whereIs: VariableDeclSyntax.self)
+
+    XCTAssertFalse(vars[0].boundProperties[0].hasInitializer)
+    XCTAssertTrue(vars[1].boundProperties[0].hasInitializer)
+    XCTAssertFalse(vars[2].boundProperties[0].hasInitializer)
+  }
 }
 
 func XCTIfLet<T>(
