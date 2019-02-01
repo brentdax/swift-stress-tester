@@ -212,12 +212,12 @@ extension VariableDeclSyntax {
   struct BoundProperty: CustomStringConvertible, TextOutputStreamable {
     var name: TokenSyntax
     var type: TypeSyntax?
-    var isInitialized: Bool
+    var hasInitializer: Bool
 
     init(boundIdentifier: (name: TokenSyntax, type: TypeSyntax?), hasInitializer: Bool) {
       self.name = boundIdentifier.name
       self.type = boundIdentifier.type
-      self.isInitialized = hasInitializer
+      self.hasInitializer = hasInitializer
                         || boundIdentifier.type is OptionalTypeSyntax
                         || boundIdentifier.type is
                                 ImplicitlyUnwrappedOptionalTypeSyntax
@@ -229,7 +229,7 @@ extension VariableDeclSyntax {
         ": ".write(to: &target)
         type.write(to: &target)
       }
-      if isInitialized {
+      if hasInitializer {
         " = <value>".write(to: &target)
       }
     }

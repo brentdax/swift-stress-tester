@@ -268,6 +268,17 @@ extension ShuffleMembersEvolution {
   }
 }
 
+extension TypeSyntax {
+  var isOptional: Bool {
+    switch self {
+    case is OptionalTypeSyntax, is ImplicitlyUnwrappedOptionalTypeSyntax:
+      return true
+    default:
+      return false
+    }
+  }
+}
+
 extension SynthesizeMemberwiseInitializerEvolution {
   init?<G>(for node: Syntax, in decl: DeclChain, using rng: inout G) throws
     where G : RandomNumberGenerator
@@ -312,25 +323,34 @@ extension SynthesizeMemberwiseInitializerEvolution {
         // We definitely care about stored properties, unless they're static.
         guard member.staticKeyword == .instance else { continue }
 
-        memberwiseInit?.reduceAccessLevel(to: member.formalAccessLevel, fromOtherScope: false)
-
         for prop in member.boundProperties {
-          if let type = prop.type {
-            var typeName = type.typeText
-            if type.isFunctionType(in: decl) {
-              typeName = "@escaping \(typeName)"
-            }
+          // "let" properties with explicit initializers can't be changed.
+          if member.letOrVarKeyword.tokenKind == .letKeyword && prop.hasInitializer {
+            continue
+          }
 
-            memberwiseInit?.properties.append(
-              StoredProperty(name: prop.name.text, type: typeName)
-            )
-          } else {
+          guard let type = prop.type else {
             // If the type is not specified, swift-evolve is not smart enough
             // to infer it.
             throw EvolutionError.unsupported
           }
 
-          if !prop.isInitialized {
+          var typeName = type.typeText
+          if type.isFunctionType(in: decl) {
+            typeName = "@escaping \(typeName)"
+          }
+
+          memberwiseInit?.properties.append(
+            StoredProperty(name: prop.name.text, type: typeName)
+          )
+          memberwiseInit?.reduceAccessLevel(to: member.formalAccessLevel,
+                                            fromOtherScope: false)
+
+          // Optional types without initializers default to nil if not set.
+          // This is different from the let && hasInitializer check above
+          // because let properties with explicit initializers can't be changed
+          // at all.
+          if !prop.hasInitializer && !(prop.type?.isOptional ?? false) {
             defaultInit = nil
           }
         }
