@@ -323,12 +323,10 @@ extension SynthesizeMemberwiseInitializerEvolution {
         // We definitely care about stored properties, unless they're static.
         guard member.staticKeyword == .instance else { continue }
 
-        for prop in member.boundProperties {
-          // "let" properties with explicit initializers can't be changed.
-          if member.letOrVarKeyword.tokenKind == .letKeyword && prop.hasInitializer {
-            continue
-          }
+        let isConstant = member.letOrVarKeyword.tokenKind == .letKeyword
 
+        // "let" properties with explicit initializers can't be changed.
+        for prop in member.boundProperties where !(isConstant && prop.hasInitializer) {
           guard let type = prop.type else {
             // If the type is not specified, swift-evolve is not smart enough
             // to infer it.
@@ -346,11 +344,17 @@ extension SynthesizeMemberwiseInitializerEvolution {
           memberwiseInit?.reduceAccessLevel(to: member.formalAccessLevel,
                                             fromOtherScope: false)
 
-          // Optional types without initializers default to nil if not set.
-          // This is different from the let && hasInitializer check above
-          // because let properties with explicit initializers can't be changed
-          // at all.
-          if !prop.hasInitializer && !(prop.type?.isOptional ?? false) {
+          // Will this type be initialized to a default value if we don't
+          // mention it in an init? If it has an initializer, or it has an
+          // Optional type and is a `var` (which implicitly defaults to `nil`),
+          // it will be.
+          let isOptional = prop.type?.isOptional ?? false
+          let isDefaultInitialized = prop.hasInitializer
+                                  || (isOptional && !isConstant)
+
+          // If there's no default value to initialize it to, we can't make
+          // a default init.
+          if !isDefaultInitialized {
             defaultInit = nil
           }
         }

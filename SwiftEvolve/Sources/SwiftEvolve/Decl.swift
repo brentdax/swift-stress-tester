@@ -218,9 +218,6 @@ extension VariableDeclSyntax {
       self.name = boundIdentifier.name
       self.type = boundIdentifier.type
       self.hasInitializer = hasInitializer
-                        || boundIdentifier.type is OptionalTypeSyntax
-                        || boundIdentifier.type is
-                                ImplicitlyUnwrappedOptionalTypeSyntax
     }
 
     func write<Target>(to target: inout Target) where Target: TextOutputStream {
