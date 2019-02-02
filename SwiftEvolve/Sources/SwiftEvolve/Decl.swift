@@ -377,10 +377,14 @@ extension DeclChain {
       types += NominalTypeReferenceFinder(in: whereClause).found
     }
 
-    return types.compactMap { lookupUnqualified($0)?.maximumAccessLevel }.min()
-      // If no resolvable types are involved, we can assume that they at least
-      // come from outside the file, so they are internal or greater.
-      ?? .internal
+    // swift-evolve currently cannot look for declarations in different files,
+    // so if we cannot find a declaration, we should conservatively assume its
+    // formal access level is internal.
+    let nameResolutionLimit = AccessLevel.internal
+
+    return types.map {
+      lookupUnqualified($0)?.maximumAccessLevel ?? nameResolutionLimit
+    }.min() ?? nameResolutionLimit
   }
 }
 
