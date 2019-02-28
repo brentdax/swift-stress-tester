@@ -200,7 +200,7 @@ extension SourceFileSyntax: DeclContext {
 // MARK: Extension handling
 
 /// A visitor which finds a ValueDecl child of a DeclContext with a given name.
-fileprivate class ValueDeclFinder: SyntaxVisitor {
+fileprivate struct ValueDeclFinder: SyntaxVisitor {
   private let syntacticName: String
   let parent: DeclContext & Syntax
   var found: [ValueDecl] = []
@@ -209,12 +209,10 @@ fileprivate class ValueDeclFinder: SyntaxVisitor {
     self.parent = parent
     self.syntacticName = syntacticName
 
-    super.init()
-
-    parent.walk(self)
+    parent.walk(&self)
   }
 
-  private func process(_ node: Syntax) -> SyntaxVisitorContinueKind {
+  private mutating func process(_ node: Syntax) -> SyntaxVisitorContinueKind {
     if let decl = node as? ValueDecl,
       decl.syntacticNames.contains(syntacticName) {
       found.append(decl)
@@ -228,75 +226,75 @@ fileprivate class ValueDeclFinder: SyntaxVisitor {
 
   // This list is a superset of the nodes we actually care about today.
 
-  override func visit(_ node: TypealiasDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: TypealiasDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: AssociatedtypeDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: AssociatedtypeDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: AccessorDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: AccessorDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: GenericParameterSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: GenericParameterSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
-  override func visit(_ node: FunctionParameterSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: FunctionParameterSyntax) -> SyntaxVisitorContinueKind {
     return process(node)
   }
 
@@ -306,24 +304,21 @@ fileprivate class ValueDeclFinder: SyntaxVisitor {
 
 /// A visitor which finds all the extensions matching the declaration containing
 /// a given node.
-fileprivate class ExtensionFinder: SyntaxVisitor {
+fileprivate struct ExtensionFinder: SyntaxVisitor {
+  /// The DeclChain containing all extensions we're going to search.
+  private let fileChain: DeclChain
+  
   /// The decl we're looking for extensions on.
   private let lookingFor: String
 
   /// The result list. Includes the original decl and all found extensions.
   fileprivate var found: [DeclContext & Syntax]
 
-  /// The context of the decl we're currently visiting.
-  private var current: DeclChain
-
   fileprivate init(of node: Syntax) {
-    current = DeclChain(decls: [])
-
     guard let target = DeclChain(at: node).extendedDeclChain else {
-      lookingFor = current.extendedTypeDescriptiveName
+      fileChain = DeclChain(decls: [])
+      lookingFor = ""
       found = []
-
-      super.init()
 
       return
     }
@@ -331,30 +326,15 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
     lookingFor = target.extendedTypeDescriptiveName
     found = [target.last as! DeclContext & Syntax]
 
-    super.init()
-
-    target.fileChain?.last?.walk(self)
+    fileChain = target.fileChain!
+    fileChain.last?.walk(&self)
   }
 
-  override func visitPre(_ node: Syntax) {
-    guard let decl = node as? Decl else {
-      return
-    }
-
-    current.append(decl)
-  }
-
-  override func visitPost(_ node: Syntax) {
-    guard let decl = node as? Decl else {
-      return
-    }
-    precondition(current.last == decl)
-    current.removeLast()
-  }
-
-  override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+  mutating func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+    let nodeChain = fileChain.appending(node)
+    print("\(nodeChain.extendedTypeDescriptiveName) ?= \(lookingFor)")
     // FIXME: Kind of gross, but at least it's not circular.
-    if current.extendedTypeDescriptiveName == lookingFor {
+    if nodeChain.extendedTypeDescriptiveName == lookingFor {
       found.append(node)
     }
 
@@ -362,39 +342,26 @@ fileprivate class ExtensionFinder: SyntaxVisitor {
     // the children at this time.
     return .skipChildren
   }
-
-  override func shouldVisit(_ kind: SyntaxKind) -> Bool {
-    switch kind {
-    // We want to visit extensions, of course.
-    case .extensionDecl:
-      return true
-
-    // Skip over some declarations which cannot contain extensions. This
-    // isn't required for correctness, it's just for speed.
-    case .typealiasDecl,
-         .associatedtypeDecl,
-         .poundErrorDecl,
-         .poundWarningDecl,
-         .poundSourceLocation,
-         .classDecl,
-         .structDecl,
-         .protocolDecl,
-         .functionDecl,
-         .initializerDecl,
-         .deinitializerDecl,
-         .subscriptDecl,
-         .importDecl,
-         .accessorDecl,
-         .variableDecl,
-         .enumCaseDecl,
-         .enumDecl,
-         .operatorDecl,
-         .precedenceGroupDecl:
-      return false
-
-    // Assume we should visit everything else.
-    default:
-      return true
-    }
-  }
+  
+  // Skip over some declarations which cannot contain extensions. This
+  // isn't required for correctness, it's just for speed.
+  func visit(_: TypealiasDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: AssociatedtypeDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: PoundErrorDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: PoundWarningDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: PoundSourceLocationSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: ClassDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: StructDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: FunctionDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: InitializerDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: ImportDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: AccessorDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: VariableDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: EnumDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: OperatorDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
+  func visit(_: PrecedenceGroupDeclSyntax) -> SyntaxVisitorContinueKind { return .skipChildren }
 }
